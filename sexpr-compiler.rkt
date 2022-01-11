@@ -1,5 +1,15 @@
 #lang typed/racket
 
+; A program is a
+;   list of imports
+;   list of exports
+;   globals
+;   memory (basically a global)
+;   functions
+
+; WASM types i32, i64, f32, f64
+
+; We will need more than one top level func env due to wasm types
 (define built-in (hash
                   '+ 'i32.add
                   '- 'i32.sub
