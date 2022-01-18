@@ -61,6 +61,7 @@
 ;; Insert what you want compiled here
 (define compile-me '(/ 6 (+ 1 2)))
 
+
 ;; Actually create the wat file and module
 (define out (open-output-file (string-append "output/output.wat") #:exists 'replace))
 (write (create-wat-module compile-me) out)
