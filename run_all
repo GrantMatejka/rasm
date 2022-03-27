@@ -1,0 +1,18 @@
+
+for FILE in test_programs/*.rkt; do 
+  echo ""
+  echo "******* Compiling: $FILE ******"
+  racket compiler.rkt $FILE
+done
+
+cd out/
+
+for FILE in *.wat; do 
+  echo ""
+  echo "******* Running: $FILE ******"
+  wat2wasm $FILE -o a.wasm
+  node index.js
+  rm a.wasm
+done
+
+cd ../

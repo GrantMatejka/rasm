@@ -1,0 +1,1 @@
+(module (func $add (export "add") (result f64) (f64.mul (f64.const 4) (f64.const 4))) (func $sub (export "sub") (result f64) (f64.sub (f64.const 2) (f64.const 1))) (func $init) (start $init))

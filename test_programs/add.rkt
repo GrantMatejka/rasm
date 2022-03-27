@@ -1,4 +1,4 @@
 (module add racket
   (provide add)
-  (define (add) (+ 1 2))
+  (define (add) (* 4 4))
   (define (sub) (- 2 1)))
