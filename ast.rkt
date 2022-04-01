@@ -19,8 +19,6 @@
       (hash-clear! LAMBDAS)
       (Program vardefs funcdefs))))
 
-(map + '(1 2) '(1 2))
-
 (define LAMBDAS (make-hash))
 
 (define (process-top top-form)
