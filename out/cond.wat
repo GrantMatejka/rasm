@@ -1,0 +1,1 @@
+(module (func $mycond (export "mycond") (param $x f64) (result f64) (if (result f64) (f64.lt (local.get $x) (f64.const 0)) (then (f64.const 0)) (else (if (result f64) (f64.lt (local.get $x) (f64.const 5)) (then (f64.const 1)) (else (if (result f64) (f64.lt (local.get $x) (f64.const 10)) (then (f64.const 2)) (else (f64.const 3)))))))) (func $init) (start $init))

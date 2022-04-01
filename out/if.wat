@@ -1,0 +1,1 @@
+(module (func $zero? (export "zero?") (param $x f64) (result f64) (if (result f64) (f64.eq (f64.const 0) (local.get $x)) (then (f64.const 1)) (else (f64.const 0)))) (func $one? (export "one?") (param $x f64) (result f64) (if (result f64) (f64.eq (f64.const 1) (local.get $x)) (then (f64.const 1)) (else (f64.const 0)))) (func $init) (start $init))
