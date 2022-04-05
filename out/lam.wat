@@ -1,1 +1,1 @@
-(module (func $triple (export "triple") (param $x f64) (result f64) (f64.add (call $lambda6407 (local.get $x)) (local.get $x))) (func $lambda6407 (export "lambda6407") (param $x f64) (result f64) (f64.add (local.get $x) (local.get $x))) (func $init) (start $init))
+(module (func $triple (export "triple") (param $x10728 f64) (result f64) (f64.add (call $lambda10727 (local.get $x10728)) (local.get $x10728))) (func $lambda10727 (param $x10729 f64) (result f64) (f64.add (local.get $x10729) (local.get $x10729))) (func $init) (start $init))

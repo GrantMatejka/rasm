@@ -1,9 +1,12 @@
 #lang racket
 
 (require "parser.rkt")
+(require "expand.rkt")
 (require "ast.rkt")
+(require "passes.rkt")
 (require "wat.rkt")
-(require racket/pretty)
+(require racket/pretty
+         json)
 
 ; Is it worth using typed racket??
 
@@ -22,17 +25,61 @@
 ;  Make every lambda top level? Where we pass in all vars we're interested in from env?
 ;  Mmultiple return values?
 
-(define file-to-compile
-  (command-line
-   #:program "rasm"
-   #:args (filename)
-   filename))
 
-(when (not (string? file-to-compile)) (error 'rasm "Expected filename"))
+; TODO: Get list libraries compiling
+; What primitive functions do we really need to implement???
+#;(let ([ns (make-base-empty-namespace)])
+    (parameterize ([current-namespace ns])
+      (namespace-require ''#%kernel)
+      (namespace-require ''#%unsafe)
+      (namespace-require ''#%flfxnum)
+      (namespace-require ''#%extfl)
+      (namespace-require ''#%futures)
+      (namespace-require ''#%foreign)
+      (namespace-mapped-symbols)))
 
-(define basename (first (string-split (last (string-split file-to-compile "/")) ".")))
+; Datatypes of interest: string, pair, list
 
-(define EXPANDED (expand-file file-to-compile))
+; HELP:
+; How do we get a fully complete racket program?? Can we pull in all requirements for a fully fully expanded???
+(define in #f)
+(define out #f)
+
+(command-line
+ #:once-any
+ [("--output") file "write output to output <file>"
+               (set! out (open-output-file file #:exists 'replace))]
+ [("--stdout") "write output to standard out"
+               (set! out (current-output-port))]
+ #:args ([source #f])
+ (cond [(and in source)
+        (raise-user-error "can't supply --stdin with a source file")]
+       [source
+        ; TODO: Eventually use this
+        #;(when (not (output-port? out))
+          (set! out (open-output-file (string-append source ".wat")
+                                      #:exists 'replace)))
+        (set! in source)]))
+
+(define input (open-input-file in))
+(define in-path (normalize-path in))
+
+(unless (output-port? out)
+  (raise-user-error "no output specified"))
+
+(unless (input-port? input)
+  (raise-user-error "no input specified"))
+
+(read-accept-reader #t)
+(read-accept-lang #t)
+
+(define mod (read-syntax (object-name input) input))
+
+(when (eof-object? mod) (exit 0))
+
+(define basename (first (string-split (last (string-split in "/")) ".")))
+
+(define EXPANDED (expand-file in))
 (display-to-file EXPANDED
                  (string-append "dev/expanded/" basename "_exp.rkt")
                  #:exists 'replace)
@@ -42,7 +89,15 @@
                  (string-append "dev/ast/" basename "_ast.rkt")
                  #:exists 'replace)
 
-(define WAT (build-wat AST))
+(define PASSED-AST (full-pass AST))
+(display-to-file PASSED-AST
+                 (string-append "dev/ast/" basename "_passed_ast.rkt")
+                 #:exists 'replace)
+
+(define WAT (build-wat PASSED-AST))
 (display-to-file WAT
                  (string-append "out/" basename ".wat")
                  #:exists 'replace)
+
+(newline out)
+(flush-output out)

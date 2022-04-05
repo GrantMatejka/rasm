@@ -16,12 +16,12 @@
 
 (define (build-wat ast)
   `(module
-       ,@(filter-map process-tdef (Program-globals ast))
-     ,@(filter-map process-tdef (Program-funcs ast))
+       ,@(filter-map process-topdef (Program-globals ast))
+     ,@(filter-map process-topdef (Program-funcs ast))
      (func $init ,@(filter-map build-init need-init))
      (start $init)))
 
-(define (process-tdef def)
+(define (process-topdef def)
   (match def
     ; TODO: This is a type hack
     [(VarDef (Id id) (Int n)) `(global ,(wat-name id) (mut f64) (f64.const ,n))]
@@ -30,7 +30,8 @@
                                           `(global ,(wat-name id) (mut f64) (f64.const 0))]
     [(FuncDef (Id fn) (Func params body))
      `(func ,(wat-name fn)
-            (export ,(~a '\" fn '\"))
+            ; HACK: Is this really necessary, also a hack bc we export everything that isn't a an anonymous function
+            ,@(if (anon? fn) '() (list `(export ,(~a '\" fn '\"))))
             ,@(map (lambda (p) `(param ,(wat-name p) f64)) params)
             (result f64)
             ,@(map process-expr body))]
@@ -76,6 +77,9 @@
          [(? symbol? id) id]
          [other (error 'unsupported id)]))))
 
+; Whether we have an anonymous lambda or not
+(define (anon? fn)
+  (string-contains? (~a fn) "lambda"))
 
 ; Tells us if we need to deconstruct or not
 (define (decon? src)
