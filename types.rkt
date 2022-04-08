@@ -2,7 +2,7 @@
 
 (provide (all-defined-out))
 
-(struct Program ([globals : (Listof VarDef)] [funcs : (Listof FuncDef)]) #:transparent)
+(struct Program ([provides : Provide*] [globals : (Listof VarDef)] [funcs : (Listof FuncDef)]) #:transparent)
 
 (struct FuncDef ([id : Id] [func : Func]) #:transparent)
 (struct VarDef ([id : Id] [val : Expr]) #:transparent)
@@ -13,7 +13,7 @@
 ; TODO: Support multiple return vals
 (struct TopDef ([id : Id] [val : TopVal]) #:transparent)
 
-(struct Func ([args : (Listof Id)] [body : (Listof Expr)]) #:transparent)
+(struct Func ([args : (Listof Id)] [locals : (Listof Id)] [body : (Listof Expr)]) #:transparent)
 
 (define-type Expr (U App CaseLambda If LetVals LetRecVals Begin Begin0 Set TopId Value))
 
@@ -32,4 +32,13 @@
 (struct Id ([sym : Symbol]) #:transparent)
 (struct Float ([n : Real]) #:transparent)
 (struct Int ([n : Integer]) #:transparent)
+
+; Forms for provide
+
+(struct Provide* ([ps : (Listof Provide)]) #:transparent)
+(define-type Provide (U SimpleProvide RenamedProvide AllDefined PrefixAllDefined))
+(struct SimpleProvide ([id : Symbol]) #:transparent)
+(struct RenamedProvide ([local-id : Symbol] [exported-id : Symbol]) #:transparent)
+(struct AllDefined ([exclude : (Setof Symbol)]) #:transparent)
+(struct PrefixAllDefined ([prefix-id : Symbol] [exclude : (Setof Symbol)]) #:transparent)
 

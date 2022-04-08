@@ -3,7 +3,9 @@
 (require "types.rkt")
 
 (require syntax/kerncase
-         syntax/stx)
+         syntax/stx
+         racket/syntax
+         syntax/parse)
 
 (provide build-ast)
 
@@ -12,18 +14,19 @@
 
 (define (build-ast exp)
   (let ((ast (process-top exp)))
-    (let ((vardefs (filter-map (lambda (td) (if (Func? (TopDef-val td)) #f (VarDef (TopDef-id td) (TopDef-val td)))) ast))
-          (funcdefs (append (filter-map (lambda (td) (if (Func? (TopDef-val td)) (FuncDef (TopDef-id td) (TopDef-val td)) #f)) ast)
+    (let ((provides (findf (lambda (td) (Provide*? td)) ast))
+          (vardefs (filter-map (lambda (td) (if (TopDef? td) (if (Func? (TopDef-val td)) #f (VarDef (TopDef-id td) (TopDef-val td))) #f)) ast))
+          (funcdefs (append (filter-map (lambda (td) (if (TopDef? td) (if (Func? (TopDef-val td)) (FuncDef (TopDef-id td) (TopDef-val td)) #f) #f)) ast)
                             (hash-map LAMBDAS (lambda (k v) (FuncDef (Id k) v))))))
       (hash-clear! LAMBDAS)
-      (Program vardefs funcdefs))))
+      (Program (if provides provides (Provide* '())) vardefs funcdefs))))
 
 (define LAMBDAS (make-hash))
 
 (define (process-top top-form)
   (kernel-syntax-case top-form #f
     ; We expect a module as the top level form to compile
-    [(module id module-path (#%plain-module-begin module-level-form ...))
+    [(module id lang (#%plain-module-begin module-level-form ...))
      (filter-map (lambda (stx) (process-mod stx)) (stx->list #'(module-level-form ...)))]
     [(#%expression expr) (error 'process-top-form TOP_LVL_FORM_ERROR)]
     [(begin top-level-form ...) (error 'process-top-form TOP_LVL_FORM_ERROR)]
@@ -33,12 +36,14 @@
 ; This handles module and submodule form, any false return values mean the form is ignored
 (define (process-mod mod-form)
   (kernel-syntax-case mod-form #f
-    ; TODO: Build the exports, will need to parse out raw-provide-spec, for now we can just hack all functions to export
-    [(#%provide raw-provide-spec ...) #f]
+    [(#%provide spec ...) (Provide* (append-map parse-provide (syntax->list #'(spec ...))))]
+    [(module id module-path (#%plain-module-begin module-level-form ...))
+     (if (equal? (syntax-e #'id) 'configure-runtime)
+         #f
+         (filter-map (lambda (stx) (process-mod stx)) (stx->list #'(module-level-form ...))))]
     ; WILLDO?
     [(begin-for-syntax module-level-form ...) (error 'unsupported)]
     [(#%declare declaration-keyword ...) #f]
-    [(module id module-path (#%plain-module-begin module-level-form ...)) #f]
     [(module* id module-path (#%plain-module-begin module-level-form ...)) #f]
     [(module* id #f (#%plain-module-begin module-level-form ...)) #f]
     [other (process-gtop mod-form)]))
@@ -65,13 +70,13 @@
        ; If we are defining a top level lambda then we know it is named
        ;  otherwise the function will be an unnamed lambda
        (if named?
-           (Func p-formals p-exprs)
+           (Func p-formals '() p-exprs)
            (let ((id (gensym 'lambda)))
-             (hash-set! LAMBDAS id (Func p-formals p-exprs))
+             (hash-set! LAMBDAS id (Func p-formals '() p-exprs))
              (Id id))))]
     ; TODO: We will just make a lambda for each variation and call it based on the num of args given
     [(case-lambda (formals body) ...)
-     (CaseLambda (map (lambda (f b) (Func (process-formal f) (process-expr b)))
+     (CaseLambda (map (lambda (f b) (Func (process-formal f) '() (process-expr b)))
                       (stx->list #'(formals ...))
                       (stx->list #'(body ...))))]
     [(if test then else)
@@ -114,14 +119,23 @@
 
 (define (process-formal formal)
   (kernel-syntax-case formal #f
-    [(id ...) (map (lambda (i) (Id (syntax-e i))) (stx->list #'(id ...)))]
-    [id (Id (syntax-e #'id))]
+    [(id ...) (map (lambda (i) (Id (get-true-id i))) (stx->list #'(id ...)))]
+    [id (Id (get-true-id #'id))]
     ; TODO: IS this a fine way to process this? Just treat it all as a list??
     ;  Or should we preserve the pairness?
     [(id1 ... . id2) (append
-                      (map (lambda (i) (Id (syntax-e i))) (stx->list #'(id1 ...)))
-                      (list (Id (syntax-e #'id2))))]
+                      (map (lambda (i) (Id (get-true-id i))) (stx->list #'(id1 ...)))
+                      (list (Id (get-true-id #'id2))))]
     [other (error 'rasm "Unknown formal " formal)]))
+
+(define (get-true-id id)
+  (let ((bound? (identifier-binding id)))
+    (match bound?
+      [#f (syntax-e id)]
+      ['lexical (syntax-e id)]
+      [(list (? symbol? s)) s]
+      [(list l ...) (second l)]
+      [other (error 'unknown "Unknown Symbol ~v" id)])))
 
 (define (process-quote datum)
   (if (eof-object? (syntax-e datum))
@@ -130,5 +144,46 @@
         [(? integer? r) (Int r)]
         [(? real? r) (Float r)]
         [(? boolean? b) (if b (Int 1) (Int 0))]
+        [(? char? c) (Int (char->integer c))]
         [other (error 'unknown (~a datum))])))
+
+
+; Borrowed from racketscript @ https://github.com/racketscript/racketscript/blob/master/racketscript-compiler/racketscript/compiler/expand.rkt
+(define (parse-provide r)
+  (syntax-parse r
+    [v:identifier (list (SimpleProvide (syntax-e #'v)))]
+    [((~datum for-meta) 0 p ...)
+     (stx-map (λ (pv) (SimpleProvide (syntax-e pv))) #'(p ...))]
+    [((~datum all-defined)) (list (AllDefined (set)))]
+    [((~datum all-defined-except) id ...)
+     (list (AllDefined (list->set
+                        (stx-map syntax-e #'(id ...)))))]
+    [((~datum rename) local-id exported-id)
+     (list (RenamedProvide (syntax-e #'local-id)
+                           (syntax-e #'exported-id)))]
+    [((~datum prefix-all-defined) prefix-id)
+     (list (PrefixAllDefined (syntax-e #'prefix-id) (set)))]
+    [((~datum prefix-all-defined-except) prefix-id id ...)
+     (list (PrefixAllDefined (syntax-e #'prefix-id)
+                             (list->set
+                              (stx-map syntax-e #'(id ...)))))]
+    [((~datum all-from) p ...) '()]
+    [((~datum all-from-except) p ...) '()]
+    [((~datum for-meta) 1 p ...) '()]
+    [((~datum for-syntax) p ...) '()]
+    [((~datum protect) p ...)
+     (apply append (stx-map parse-provide #'(p ...)))]
+    [((~datum struct) p (f ...))
+     (append
+      (list (SimpleProvide (syntax-e #'p))
+            (SimpleProvide (syntax-e (format-id #'p "make-~a" #'p)))
+            (SimpleProvide (syntax-e (format-id #'p "struct:~a" #'p)))
+            (SimpleProvide (syntax-e (format-id #'p "~a?" #'p))))
+      (stx-map ; accessors
+       (lambda (f) (syntax-e (format-id #'p "~a-~a" #'p f)))
+       #'(f ...))
+      (stx-map ; mutators
+       (lambda (f) (syntax-e (format-id #'p "set-~a-~a!" #'p f)))
+       #'(f ...)))]
+    [_ (error "unsupported provide form " (syntax->datum r))]))
 

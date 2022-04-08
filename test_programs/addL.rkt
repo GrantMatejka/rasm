@@ -1,3 +1,5 @@
+#lang racket
+
 (module add racket
   (provide add)
   (define (add) (* 4 4))

@@ -1,1 +1,0 @@
-(module (func $add1 (export "add1") (param $x10727 f64) (result f64) (f64.add (local.get $x10727) (f64.const 1))) (func $init) (start $init))

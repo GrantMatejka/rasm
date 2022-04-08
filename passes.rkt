@@ -11,7 +11,8 @@
 
 (define (full-pass [ast : Program])
   (typecheck ast)
-  (unique-variables ast))
+  (unique-variables ast)
+  (lift-locals ast))
 
 ; Super simple typecheck but can elaborate later
 ; Juse make sure no top level definitions overshadow each other
@@ -24,6 +25,7 @@
 ; We force globals to be unique, so just go through expressions and uniquify tgem
 (define (unique-variables [ast : Program]) : Program
   (Program
+   (Program-provides ast)
    (map (lambda ([vd : VarDef])
           (VarDef (VarDef-id vd) (uniquify-expr (VarDef-val vd) (make-hash))))
         (Program-globals ast))
@@ -37,6 +39,7 @@
                        (Func-args func)
                        (Func-args func))))
     (Func (map (lambda ([id-pair : (Pairof Symbol Symbol)]) (Id (cdr id-pair))) new-args)
+          (Func-locals func)
           (map (lambda ([expr : Expr]) (uniquify-expr expr (make-hash new-args))) (Func-body func)))))
 
 
@@ -72,6 +75,29 @@
     [(Set id expr) (Set (uniquify-id (Id-sym id) env) (uniquify-expr expr env))]
     [(Id s) (uniquify-id s env)]
     [other expr]))
+
+(define (lift-locals [ast : Program]) : Program
+  (Program
+   (Program-provides ast)
+   (Program-globals ast)
+   (map (lambda ([fd : FuncDef])
+          (FuncDef (FuncDef-id fd)
+                   (lift-func-locals (FuncDef-func fd))))
+        (Program-funcs ast))))
+
+(define (lift-func-locals [f : Func]) : Func
+  (Func (Func-args f)
+        (get-local-syms (Func-body f))
+        (Func-body f)))
+
+(define (get-local-syms [body : (Listof Expr)]) : (Listof Id)
+  (append-map
+   (lambda ([e : Expr]) : (Listof Id)
+     (match e
+       [(LetVals ids vals body) (cast (flatten ids) (Listof Id))]
+       [(LetRecVals ids vals body) (cast (flatten ids) (Listof Id))]
+       [other '()]))
+   body))
 
 (define (uniquify-id [s : Symbol] [env : Env]) : Id
   (Id (if (hash-has-key? env s) (hash-ref env s) s)))

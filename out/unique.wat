@@ -1,1 +1,0 @@
-(module (func $test (export "test") (result f64) ((f64.add (local.get $x10727) ((local.get $x10728))))) (func $init) (start $init))

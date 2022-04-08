@@ -1,12 +1,15 @@
 #lang racket
 
 (require "parser.rkt")
-(require "expand.rkt")
 (require "ast.rkt")
 (require "passes.rkt")
 (require "wat.rkt")
 (require racket/pretty
          json)
+
+; Convert Closures -> basically what CS does
+
+; TODO: Fix addL.rkt
 
 ; Is it worth using typed racket??
 
@@ -64,18 +67,13 @@
 (define input (open-input-file in))
 (define in-path (normalize-path in))
 
+; TODO: delete this next line when we allow custom out files
+(set! out (current-output-port))
 (unless (output-port? out)
   (raise-user-error "no output specified"))
 
 (unless (input-port? input)
   (raise-user-error "no input specified"))
-
-(read-accept-reader #t)
-(read-accept-lang #t)
-
-(define mod (read-syntax (object-name input) input))
-
-(when (eof-object? mod) (exit 0))
 
 (define basename (first (string-split (last (string-split in "/")) ".")))
 
