@@ -1,23 +1,20 @@
 #lang racket
 
-(require "parser.rkt")
-(require "ast.rkt")
+(require "expand.rkt")
 (require "passes.rkt")
 (require "wat.rkt")
 (require racket/pretty
          json)
 
-; Convert Closures -> basically what CS does
 
 ; TODO: Fix addL.rkt
-
-; Is it worth using typed racket??
 
 ;; TODO: Things of interest
 ; - handling lambdas, basically make every lambda a top level func???
 ; -- Maybe take the top level at first and then try to optimize later (with loops)
 ; - data types, just hardcode everything to f64 for now bc that's a safe bet
 ; - Provide/exports, we need to actually parse the spec
+; - Convert Closures -> basically what CS does, need to use wasm tables
 
 ; Do we need to have a unique identifier for every var?
 ;   Don't know since wasm has func scoped vars, but I tink easy enough to just do to be safe

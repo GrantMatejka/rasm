@@ -1,117 +1,169 @@
-#lang racket/base
+#lang racket
 
-;; Ripped out of Pycket project. Orignial source code at -
-;;
-;;   https://github.com/samth/pycket/blob/master/pycket/pycket-lang/expand.rkt
-;;
-;; Copyright (c) 2013 Sam Tobin-Hochstadt, Jeremy Siek, Carl Friedrich Bolz
+(require "types.rkt")
 
-(require (for-syntax racket/base)
-         racket/bool
-         racket/dict
-         (only-in racket/list
-                  append-map
-                  last-pair
-                  filter-map
-                  first
-                  add-between)
-         racket/list
-         racket/match
-         racket/path
-         racket/pretty
-         racket/set
-         racket/syntax
-         racket/vector
-         syntax/id-table
-         syntax/parse
+(require syntax/kerncase
          syntax/stx
-         version/utils
-         "absyn.rkt"
-         "config.rkt"
-         "global.rkt"
-         "logging.rkt"
-         "moddeps.rkt"
-         "util.rkt")
+         racket/syntax
+         syntax/parse)
 
-(provide convert
-         open-read-module
-         read-module
-         to-absyn
-         to-absyn/top
-         read-and-expand-module
-         quick-expand)
+(provide expand-file build-ast)
 
-(define current-module (make-parameter #f))
-(define current-phase (make-parameter 0))
-(define quoted? (make-parameter #f))
-(define lexical-bindings (make-parameter #f)) ;; Free-Id-Table
-(define defined-names (make-parameter #f)) ;; set of symbols, rkt prog can have defs with same name
-(define dup-names (make-parameter #f)) ;; free-id-table, rkt prog can have defs with same name
-(define skip-freshening? (make-parameter #f))
+(define TOP_LVL_FORM_ERROR "ERROR: Please provide a module as the top form to compile")
 
-;;;----------------------------------------------------------------------------
-;;;; Module dependencies and imports
+; Opens the specified file and returns fully expanded program
+(define (expand-file path)
+  (let ((file (open-input-file path)))
+    (read-accept-reader #t)
+    (read-accept-lang #t)
+    
+    (define expansion (parameterize ([current-namespace (make-base-namespace)])
+                        (expand
+                         (read-syntax (object-name file) file))))
+    (close-input-port file)
+    expansion))
 
-;; (Setof (U ModulePath Symbol))
-(define current-module-imports (make-parameter (set)))
+; exp is a fully expanded racket program
+(define (build-ast exp)
+  (let ((ast (process-top exp)))
+    (let ((provides (my-findf Provide*? ast (Provide* '())))
+          (vardefs (filter VarDef? ast))
+          (funcdefs (append (filter FuncDef? ast)
+                            (hash-map LAMBDAS (lambda (k v) (FuncDef (Id k) v))))))
+      (hash-clear! LAMBDAS)
+      (Program provides vardefs funcdefs))))
 
-;;;----------------------------------------------------------------------------
-;;;; Module paths
+(define LAMBDAS (make-hash))
 
-(define (index->path i)
-  (define-values (v u) (module-path-index-split i))
-  (if v
-      (list (resolved-module-path-name (module-path-index-resolve i)) #f)
-      (list (current-module) #t)))
+(define (process-top top-form)
+  (kernel-syntax-case top-form #f
+    ; We expect a module as the top level form to compile
+    [(module id lang (#%plain-module-begin module-level-form ...))
+     (flatten (filter-map (lambda (stx) (process-mod stx)) (stx->list #'(module-level-form ...))))]
+    [(#%expression expr) (error 'process-top-form TOP_LVL_FORM_ERROR)]
+    [(begin top-level-form ...) (error 'process-top-form TOP_LVL_FORM_ERROR)]
+    [(begin-for-syntax top-level-form ...) (error 'process-top-form TOP_LVL_FORM_ERROR)]
+    [other (process-gtop top-form)]))
 
-;;;-----------------------------------------------------------------------------
-;;;; Conversion and expansion
+; This handles module and submodule form, any false return values mean the form is ignored
+(define (process-mod mod-form)
+  (kernel-syntax-case mod-form #f
+    [(#%provide spec ...) (Provide* (append-map parse-provide (syntax->list #'(spec ...))))]
+    ; We only expect one sub module max, this happens if the expanded file has #lang
+    [(module id module-path (#%plain-module-begin module-level-form ...))
+     (if (equal? (syntax-e #'id) 'configure-runtime)
+         #f
+         (filter-map process-mod (stx->list #'(module-level-form ...))))]
+    ; WILLDO?
+    [(begin-for-syntax module-level-form ...) (error 'unsupported)]
+    [(#%declare declaration-keyword ...) #f]
+    [(module* id module-path (#%plain-module-begin module-level-form ...)) #f]
+    [(module* id #f (#%plain-module-begin module-level-form ...)) #f]
+    [other (process-gtop mod-form)]))
 
-;; record all (symbolic) names defined via define-values
-;; - need to track these because Racket progs can have multiple defs with same name
-(define (register-defined-names! stx)
-  (cond
-    [(stx-list? stx)
-     (for-each register-defined-names! (syntax->list stx))]
-    [(identifier? stx)
-     (if (set-member? (defined-names) (syntax-e stx))
-         (register-dup-name! stx) ; add to dup-names set if already seen
-         (set-add! (defined-names) (syntax-e stx)))] ; else add to defined-names
-    [(stx-pair? stx)
-     (register-defined-names! (stx-car stx))
-     (register-defined-names! (stx-cdr stx))]
-    [else (error 'register-defined-names "unexpected ~a" stx)]))
+; For the general top level forms
+(define (process-gtop gtop-form)
+  (kernel-syntax-case gtop-form #f
+    ; These will all be top level definitions, so either global vars or functions
+    [(define-values (id ...) expr)
+     (let ((p-ids (filter-map (lambda (stx) (process-formal stx)) (stx->list #'(id ...))))
+           (p-expr (process-expr #'expr #t)))
+       ; TODO: Support multiple return vals
+       (if (Func? p-expr)
+           (FuncDef (first p-ids) p-expr)
+           (VarDef (first p-ids) p-expr)))]
+    ; WILLDO? TODO: Ask clements about these
+    [(define-syntaxes (id ...) expr) (error 'unsupported)]
+    [(#%require raw-require-spec ...) (error 'unsupported)]
+    [other (process-expr gtop-form)]))
 
-;; registers duplicate names that need to be freshened in the next pass
-(define (register-dup-name! id)
-  (dict-set! (dup-names) id (generate-temporary id)))
+(define (process-expr expr [named? #f])
+  (kernel-syntax-case expr #f
+    [(#%plain-lambda formals expr ...)
+     (let ((p-formals (process-formal #'formals))
+           (p-exprs (filter-map (lambda (stx) (process-expr stx)) (stx->list #'(expr ...)))))
+       ; If we are defining a top level lambda then we know it is named
+       ;  otherwise the function will be an unnamed lambda
+       (if named?
+           (Func p-formals '() p-exprs)
+           (let ((id (gensym 'lambda)))
+             (hash-set! LAMBDAS id (Func p-formals '() p-exprs))
+             (Id id))))]
+    ; TODO: We will just make a lambda for each variation and call it based on the num of args given
+    [(case-lambda (formals body) ...)
+     (CaseLambda (map (lambda (f b) (Func (process-formal f) '() (process-expr b)))
+                      (stx->list #'(formals ...))
+                      (stx->list #'(body ...))))]
+    [(if test then else)
+     (let ((p-test (process-expr #'test))
+           (p-then (process-expr #'then))
+           (p-else (process-expr #'else)))
+       (If p-test p-then p-else))]
+    [(begin exprs ...)
+     (let ((p-exprs (filter-map process-expr (stx->list #'(exprs ...)))))
+       (Begin p-exprs))]
+    [(begin0 expr1 expr2 ...)
+     (let ((p-exprs
+            (filter-map process-expr (cons #'expr1 (stx->list #'(expr2 ...))))))
+       (Begin0 p-exprs))]
+    [(let-values ([ids vals] ...) exprs ...)
+     (let ((p-ids (filter-map process-expr (stx->list #'(ids ...))))
+           (p-vals (filter-map process-expr (stx->list #'(vals ...))))
+           (p-exprs (filter-map process-expr (stx->list #'(exprs ...)))))
+       (LetVals p-ids p-vals p-exprs))]
+    [(letrec-values ([ids vals] ...) exprs ...)
+     (let ((p-ids (filter-map process-expr (stx->list #'(ids ...))))
+           (p-vals (filter-map process-expr (stx->list #'(vals ...))))
+           (p-exprs (filter-map process-expr (stx->list #'(exprs ...)))))
+       (LetRecVals p-ids p-vals p-exprs))]
+    [(#%plain-app expr ...)
+     (let ((p-exprs (filter-map process-expr (stx->list #'(expr ...)))))
+       (App (first p-exprs) (rest p-exprs)))]
+    [(set! id expr) (Set (process-formal #'id) (process-expr #'expr))]
+    [(quote datum) (process-quote #'datum)]
+    [id (process-formal #'id)]
+    [(#%variable-reference id) (process-formal #'id)]
+    [(#%top . id) (TopId (process-formal #'id))]
+    [(#%variable-reference (#%top . id)) (TopId (process-formal #'id))]
+    ; TODO: WILL NOT DO??
+    [(#%variable-reference) '()]
+    [(quote-syntax datum) '()]
+    [(quote-syntax datum #:local) '()]
+    [(with-continuation-mark expr1 expr2 expr3) '()]
+    [other (error 'rasm "Unknown expression " expr)]))
 
-(define (register-lexical-bindings! stx)
-  (cond
-    [(stx-list? stx)
-     (for-each register-lexical-bindings! (syntax->list stx))]
-    [(identifier? stx)
-     (dict-set! (lexical-bindings)
-                stx
-                (if (skip-freshening?)
-                    stx
-                    (car (generate-temporaries (list stx)))))]
-    [(stx-pair? stx)
-     (register-lexical-bindings! (stx-car stx))
-     (register-lexical-bindings! (stx-cdr stx))]
-    [else (error 'register-lexical-bindings "unexpected ~a" stx)]))
+(define (process-formal formal)
+  (kernel-syntax-case formal #f
+    [(id ...) (map (lambda (i) (Id (get-true-id i))) (stx->list #'(id ...)))]
+    [id (Id (get-true-id #'id))]
+    ; TODO: IS this a fine way to process this? Just treat it all as a list??
+    ;  Or should we preserve the pairness?
+    [(id1 ... . id2) (append
+                      (map (lambda (i) (Id (get-true-id i))) (stx->list #'(id1 ...)))
+                      (list (Id (get-true-id #'id2))))]
+    [other (error 'rasm "Unknown formal " formal)]))
 
-(define (get-freshened-lexical-binding! id)
-  (dict-ref! (lexical-bindings)
-             id
-             (λ _ (error 'get-freshened-lexical-binding! "Missed binding: ~a" id))))
+(define (get-true-id id)
+  (let ((bound? (identifier-binding id)))
+    (match bound?
+      [#f (syntax-e id)]
+      ['lexical (syntax-e id)]
+      [(list (? symbol? s)) s]
+      [(list l ...) (second l)]
+      [other (error 'unknown "Unknown Symbol ~v" id)])))
 
-#;(define (require-parse r)
-  (syntax-parse r
-    [v:str (Require (syntax-e #'v) #f)]
-    [v:identifier (Require (syntax-e #'v) #f)]
-    [_ (error "unsupported require format")]))
+(define (process-quote datum)
+  (if (eof-object? (syntax-e datum))
+      '()
+      (match (syntax-e datum)
+        [(? integer? r) (Int r)]
+        [(? real? r) (Float r)]
+        [(? boolean? b) (if b (Int 1) (Int 0))]
+        [(? char? c) (Int (char->integer c))]
+        [other (error 'unknown (~a datum))])))
 
+
+; Borrowed from racketscript @ https://github.com/racketscript/racketscript/blob/master/racketscript-compiler/racketscript/compiler/expand.rkt
 (define (parse-provide r)
   (syntax-parse r
     [v:identifier (list (SimpleProvide (syntax-e #'v)))]
@@ -148,429 +200,10 @@
       (stx-map ; mutators
        (lambda (f) (syntax-e (format-id #'p "set-~a-~a!" #'p f)))
        #'(f ...)))]
-    [_ #;(error "unsupported provide form " (syntax->datum r)) '()]))
+    [_ (error "unsupported provide form " (syntax->datum r))]))
 
-(define (formals->absyn formals)
-  (cond
-    [(stx-list? formals) (stx-map formals->absyn formals)]
-    [(stx-pair? formals)
-     ;; Splits the formals to be compatible with
-     ;; LetValues/PlainLambda.  If we reach here, rest of the
-     ;; structure will also reach here unless its terminal. We build
-     ;; up proper part and improper part result recursively.
-     (cond
-       [(stx-pair? (stx-cdr formals))
-        (match-define (cons pos rst) (formals->absyn (stx-cdr formals)))
-        (cons (cons (formals->absyn (stx-car formals)) pos)
-              rst)]
-       [else (cons (list (formals->absyn (stx-car formals)))
-                   (formals->absyn (stx-cdr formals)))])]
-    [(identifier? formals)
-     (syntax-e (get-freshened-lexical-binding! formals))]
-    [(null? formals) null]
-    [else 'formals->absyn "Invalid formals: ~a" formals]))
-
-(define (to-absyn v)
-  (syntax-parse v
-    #:literal-sets ((kernel-literals #:phase (current-phase)))
-    [v:str (syntax-e #'v)]
-    ;; special case when under quote to avoid the "interesting"
-    ;; behavior of various forms
-    [(_ ...)
-     #:when (quoted?)
-     (map to-absyn (syntax->list v))]
-    [(module _ ...) #f] ;; ignore these
-    [(module* _ ...) #f] ;; ignore these
-    ;; this is a simplification of the json output
-    [(#%plain-app e0 e ...)
-     (PlainApp (to-absyn #'e0) (map to-absyn (syntax->list #'(e ...))))]
-    [(#%expression e) (to-absyn #'e)]
-    [(begin e ...)
-     (map to-absyn (syntax->list #'(e ...)))]
-    [(begin0 e0 e ...)
-     (Begin0
-       (to-absyn #'e0)
-       (map to-absyn (syntax->list #'(e ...))))]
-    [(if e0 e1 e2)
-     (If (to-absyn #'e0) (to-absyn #'e1) (to-absyn #'e2))]
-    [(let-values ([xs es] ...) b ...)
-     (register-lexical-bindings! #'(xs ...))
-     (LetValues (for/list ([x (syntax-e #'(xs ...))]
-                           [e (syntax->list #'(es ...))])
-                  (cons (formals->absyn x)
-                        (to-absyn e)))
-                (map to-absyn (syntax->list #'(b ...))))]
-    [(letrec-values ([xs es] ...) b ...)
-     (register-lexical-bindings! #'(xs ...))
-     (LetValues (for/list ([x (syntax->list #'(xs ...))]
-                           [e (syntax->list #'(es ...))])
-                  (cons (formals->absyn x)
-                        (to-absyn e)))
-                (map to-absyn (syntax->list #'(b ...))))]
-    [(quote e) (Quote
-                (parameterize ([quoted? #t])
-                  (to-absyn #'e)))] ;;;; TODO: HACK! See what actually happens
-    [(quote-syntax e ...) '()]
-    [(#%require x ...)
-     #f
-     #;(map require-parse (syntax->list #'(x ...)))]
-    [(#%provide x ...)
-     (append-map parse-provide (syntax->list #'(x ...)))]
-    [(case-lambda . clauses)
-     (CaseLambda
-      (stx-map (λ (c)
-                 (syntax-parse c
-                   [(formals . body)
-                    (register-lexical-bindings! #'formals)
-                    (PlainLambda (formals->absyn #'formals)
-                                 (stx-map to-absyn #'body)
-                                 #f)]))
-               #'clauses))]
-    [(#%plain-lambda formals . body)
-     (register-lexical-bindings! #'formals)
-     (define unchecked? (syntax-property v 'racketscript-unchecked-lambda?))
-     (define fabsyn (formals->absyn #'formals))
-     (PlainLambda fabsyn (map to-absyn (syntax->list #'body)) unchecked?)]
-    [(define-values (name)
-       (#%plain-app (~datum #%js-ffi) (quote (~datum require)) (quote mod:str)))
-     ;; HACK: Special case for JSRequire
-     (JSRequire (syntax-e #'name) (syntax-e #'mod) 'default)]
-    [(define-values (name)
-       (#%plain-app (~datum #%js-ffi) (quote (~datum require)) (quote *) (quote mod:str)))
-     ;; HACK: Special case for JSRequire
-     (JSRequire (syntax-e #'name) (syntax-e #'mod) '*)]
-    [(define-values (id ...) b)
-     (DefineValues (syntax->datum #'(id ...)) (to-absyn #'b))]
-    [(#%top . x) (TopId (syntax-e #'x))]
-    [(#%variable-reference x) (VarRef (to-absyn #'x))]
-    [(#%variable-reference) (VarRef #f)]
-    [i:identifier #:when (quoted?) (syntax-e #'i)]
-    [i:identifier
-     (define (rename-module mpath)
-       ;; Rename few modules for simpler compilation
-       (cond
-         [(symbol? mpath) (list #f mpath)]
-         #;[(collects-module? mpath) (list #t '#%kernel)]
-         [else (list #f mpath)]))
-
-     (match (identifier-binding #'i)
-       ['lexical (LocalIdent (syntax-e (get-freshened-lexical-binding! #'i)))]
-       [#f (TopLevelIdent (syntax-e #'i))]
-       [(list src-mod src-id nom-src-mod mod-src-id src-phase import-phase nominal-export-phase)
-        ;; from where we import
-        (match-define (list src-mod-path-orig self?) (index->path src-mod))
-        (match-define (list nom-src-mod-path-orig _) (index->path nom-src-mod))
-        (match-define (list module-renamed? src-mod-path) (rename-module src-mod-path-orig))
-
-        (cond
-          [self? (LocalIdent (syntax-e #'i))]
-          [else
-           ;; Add the module from where we actual import this, so that we import this, and
-           ;; any side-effects due to this module is actually executed
-           ;(match-define (list nom-mod-path _) (index->path nom-src-mod))
-           ;(current-module-imports (set-add (current-module-imports) nom-mod-path))
-
-           ;; And still add the actual module where identifier is defined for easy
-           ;; and compact import. NOTE:In future we may want to remove this and
-           ;; compute this with moddeps information.
-           ;; FIXME?: Racket7 workaround
-           (if (and (version<=? "7.0" (version))
-                    (equal? src-mod-path '#%runtime))
-               (current-module-imports (set-add (current-module-imports) '#%kernel))
-               (current-module-imports (set-add (current-module-imports) src-mod-path)))
-
-           ;;HACK: See test/struct/import-struct.rkt. Somehow, the
-           ;;  struct constructor has different src-id returned by
-           ;;  identifier-binding than the actual identifier name used
-           ;;  at definition site. Implicit renaming due to macro
-           ;;  expansion?
-           ;;
-           ;;HACK: See tests/modules/rename-and-import.rkt and
-           ;;  tests/rename-from-primitive.rkt. When importing from a
-           ;;  module with a rename, identifier-binding's, mod-src-id
-           ;;  shows the renamed id, i.e. the one it is imported as
-           ;;  instead of what it is exported as. We handle this
-           ;;  special case where both src-mod and nom-src-mod are
-           ;;  equal. If both source module and normalized module are
-           ;;  same with different ids:
-           ;;  - Check if nom-src-id is exported and use that. Or,
-           ;;  - Check if src-id is exported and use that. Or,
-           ;;  - Fallback to module source id.
-           (define-values (id-to-follow path-to-symbol)
-             (cond
-               [(and (equal? src-mod nom-src-mod)
-                     (not (equal? src-id mod-src-id)))
-                (let ([path-to-symbol-src (follow-symbol (global-export-graph)
-                                                         nom-src-mod-path-orig
-                                                         mod-src-id)])
-                  (if path-to-symbol-src
-                      (values mod-src-id path-to-symbol-src)
-                      (let ([path-to-symbol-nom (follow-symbol (global-export-graph)
-                                                               nom-src-mod-path-orig
-                                                               src-id)])
-                        (if path-to-symbol-nom
-                            (values src-id path-to-symbol-nom)
-                            (values mod-src-id #f)))))]
-               [else (values mod-src-id
-                             (follow-symbol (global-export-graph)
-                                            nom-src-mod-path-orig
-                                            mod-src-id))]))
-
-           ;; If the module is renamed use the id name used at the importing
-           ;; module rather than defining module. Since renamed, module currently
-           ;; are #%kernel which we write ourselves in JS we prefer original name.
-           ;; TODO: We potentially might have clashes, but its unlikely.
-           (define-values (effective-id effective-mod reachable?)
-             (cond
-               [module-renamed? (values mod-src-id src-mod-path #t)]
-               [(false? path-to-symbol)
-                (when (and (not (ignored-undefined-identifier? #'i))
-                           (symbol? src-mod-path))
-                  ;; Since free id's are anyway caught by Racket, just
-                  ;; complain about the primitives.
-                  (log-rjs-warning
-                   "Implementation of identifier ~a not found in module ~a!"
-                   (syntax-e #'i) src-mod-path))
-                (values id-to-follow src-mod-path #f)]
-               [else
-                (match-let ([(cons (app last mod) (? symbol? id)) path-to-symbol])
-                  (values id mod #t))]))
-
-           (ImportedIdent effective-id effective-mod reachable?)])])]
-    [(define-syntaxes (i ...) b) #f]
-    [(set! s e)
-     (let ([id* (if (equal? (identifier-binding #'s) 'lexical)
-                    (get-freshened-lexical-binding! #'s)
-                    #'s)])
-       (Set! (syntax-e id*) (to-absyn #'e)))]
-    [(with-continuation-mark key value result)
-     (WithContinuationMark (to-absyn #'key)
-                           (to-absyn #'value)
-                           (to-absyn #'result))]
-    [(begin-for-syntax b ...) #f]
-    [(_ ...)
-     (map to-absyn (syntax->list v))]
-    [(a . b)
-     (cons (to-absyn #'a) (to-absyn #'b))]
-    [#(_ ...) (vector-map to-absyn (syntax-e v))]
-    [_ #:when (hash? (syntax-e v))
-       (define val (syntax-e v))
-       (define keys (to-absyn (datum->syntax #'lex (hash-keys val))))
-       (define vals (to-absyn (datum->syntax #'lex (hash-values val))))
-       (define hash-maker
-         (cond
-           [(hash-eq? val) make-immutable-hasheq]
-           [(hash-eqv? val) make-immutable-hasheqv]
-           [(hash-equal? val) make-immutable-hash]))
-       (hash-maker (map cons keys vals))]
-    [_ #:when (number? (syntax-e v)) (syntax-e v)]
-    [_ #:when (bytes? (syntax-e v)) (syntax-e v)]
-    [_ #:when (boolean? (syntax-e v)) (syntax-e v)]
-    [_ #:when (prefab-struct-key (syntax-e v)) #f] ;; TODO: No error to compile FFI
-    [_ #:when (box? (syntax-e v)) (box (parameterize ([quoted? #t])
-                                         (to-absyn (unbox (syntax-e v)))))]
-    [_ #:when (exact-integer? (syntax-e v))
-       (Quote (syntax-e v))]
-    [_ #:when (boolean? (syntax-e v)) (Quote (syntax-e v))]
-    [_ #:when (keyword? (syntax-e v)) (Quote (syntax-e v))]
-    [(~or (~datum +inf.0) (~datum -inf.0) (~datum nan.0))
-     (Quote (syntax-e v))]
-    [_ #:when (real? (syntax-e v)) (Quote (syntax-e v))]
-    [_ #:when (complex? (syntax-e v)) #f]
-    [_ #:when (char? (syntax-e v))
-       (Quote (syntax-e v))]
-    [_ #:when (regexp? (syntax-e v))
-       (Quote (syntax-e v))]
-    [_ #:when (pregexp? (syntax-e v))
-       (Quote (syntax-e v))]
-    [_ #:when (byte-regexp? (syntax-e v))
-       (Quote (syntax-e v))]
-    [_ #:when (byte-pregexp? (syntax-e v))
-       (Quote (syntax-e v))]
-    [_ #:when (void? (syntax-e v))
-       (Quote (void))]
-    [_ (displayln "unsupported form =>")
-       (pretty-print (syntax->datum v))
-       (error 'expand)]))
-
-(define (freshen-form v)
-  (syntax-parse v
-    #:literal-sets ((kernel-literals #:phase (current-phase)))
-    [(define-values (name) (#%plain-app (~datum #%js-ffi) . _))
-     ;; HACK: Special case for JSRequire
-     this-syntax]
-    [(define-values (id ...) . _)
-     (register-defined-names! #'(id ...))
-     this-syntax]
-    [_ this-syntax]))
-
-(define (convert mod path)
-  (syntax-parse (freshen-mod-forms mod) ; Racket can have 2+ defs with same name
-    #:literal-sets ((kernel-literals #:phase (current-phase)))
-    [(module name:id lang:expr (#%plain-module-begin forms ...))
-     (parameterize ([current-module path]
-                    [current-module-imports (set)]
-                    [current-directory (path-only path)]
-                    [lexical-bindings (make-free-id-table)])
-       (define mod-id (syntax-e #'name))
-       (log-rjs-info "[absyn] ~a" mod-id)
-       (let* ([ast (filter-map to-absyn (syntax->list #'(forms ...)))]
-              [imports (current-module-imports)]
-              [quoted-bindings (list->set
-                                (map
-                                 syntax-e
-                                 (filter
-                                  (λ (x)
-                                    ;; We just compile phase 0 forms now
-                                    (let ([r (identifier-binding x)])
-                                      (and (list? r)
-                                           (zero? (list-ref (identifier-binding x) 4)))))
-                                  (get-quoted-bindings #'(forms ...)))))])
-         (Module mod-id
-                 path
-                 (syntax->datum #'lang)
-                 imports
-                 quoted-bindings
-                 ast)))]
-    [_
-     (error 'convert "bad ~a ~a" mod (syntax->datum mod))]))
-
-(define (freshen-mod-forms mod)
-  (syntax-parse mod
-    #:literal-sets ((kernel-literals #:phase (current-phase)))
-    [(module name:id lang:expr (#%plain-module-begin forms ...))
-     (parameterize ([defined-names (mutable-set)]
-                    [dup-names (make-free-id-table)])
-       (define mod-id (syntax-e #'name))
-       (log-rjs-info "[freshening module forms] ~a" mod-id)
-       (for-each freshen-form (syntax->list #'(forms ...)))
-       (replace-dup-names this-syntax))]
-    [_ (error 'freshen-mod-forms "bad ~a ~a" mod (syntax->datum mod))]))
-
-;; replace all ids in (dup-names) with fresh name;
-;; handles modules that have multiple defs with the same symbolic name
-(define (replace-dup-names stx)
-  (cond
-    [(pair? stx) (cons (replace-dup-names (car stx))
-                       (replace-dup-names (cdr stx)))]
-    [(stx-pair? stx)
-     (datum->syntax stx (cons (replace-dup-names (stx-car stx))
-                              (replace-dup-names (stx-cdr stx)))
-                    stx stx stx)]
-    [(and (identifier? stx) (dict-has-key? (dup-names) stx))
-     (dict-ref (dup-names) stx)]
-    [else stx]))
-
-(define (to-absyn/top stx)
-  (to-absyn stx))
-
-(define (do-expand stx)
-  ;; error checking
-  (syntax-parse stx
-    [((~and mod-datum (~datum module)) n:id lang:expr . rest)
-     (void)]
-    [((~and mod-datum (~datum module)) . rest)
-     (error 'do-expand
-            "got ill-formed module: ~a\n" (syntax->datum #'rest))]
-    [rest
-     (error 'do-expand
-            "got something that isn't a module: ~a\n" (syntax->datum #'rest))])
-  ;; work
-
-  (parameterize ([current-namespace (make-base-namespace)])
-    (expand stx)))
-
-;;; Read modules
-
-(define (read-module input)
-  (read-syntax (object-name input) input))
-
-(define (open-read-module in-path)
-  (call-with-input-file (actual-module-path in-path)
-    (λ (in)
-      (read-module in))))
-
-(define (quick-expand in-path)
-  (log-rjs-info "[expand] ~a" in-path)
-  (read-accept-reader #t)
-  (read-accept-lang #t)
-  (define full-path (path->complete-path (actual-module-path in-path)))
-  (parameterize ([current-directory (path-only full-path)])
-    (do-expand (open-read-module in-path))))
-
-(define (read-and-expand-module input)
-  (read-accept-reader #t)
-  (read-accept-lang #t)
-  (do-expand (read-syntax (object-name input) input)))
-
-;;;----------------------------------------------------------------------------
-;;; Flatten Phases in Module
-
-(define (flatten-module-forms mod-stx)
-  (define phase-forms (make-hash))
-
-  (define (save-form! form)
-    (hash-update! phase-forms
-                  (current-phase)
-                  (λ (v)
-                    (append v (list form)))
-                  '()))
-
-  (define (walk stx)
-    (syntax-parse stx
-      #:literal-sets ((kernel-literals #:phase (current-phase)))
-      [((begin-for-syntax forms ...) . tl)
-       (parameterize ([current-phase (add1 (current-phase))])
-         (walk #'(forms ...)))
-       (walk #'tl)]
-      [(hd . tl)
-       (save-form! #'hd)
-       (walk #'tl)]
-      [() (void)]
-      [_ (save-form! stx)]))
-
-  (parameterize ([current-phase 0])
-    (walk mod-stx))
-
-  (for/hash ([(phase forms) phase-forms])
-    (values phase (datum->syntax mod-stx forms))))
-
-;;;----------------------------------------------------------------------------
-;;; Prepare binding dependency graph
-
-(define (get-quoted-bindings stx)
-  (syntax-parse stx
-    #:literal-sets ((kernel-literals #:phase (current-phase)))
-    [(quote-syntax e)
-     (parameterize ([quoted? #t]
-                    [current-phase (sub1 (current-phase))])
-       (get-quoted-bindings #'e))]
-    [(define-syntaxes _ b)
-     (parameterize ([current-phase (add1 (current-phase))])
-       (get-quoted-bindings #'b))]
-    [(begin-for-syntax forms ...)
-     (parameterize ([current-phase (add1 (current-phase))])
-       (get-quoted-bindings #'(forms ...)))]
-    [(hd . tl)
-     (append (get-quoted-bindings #'hd)
-             (get-quoted-bindings #'tl))]
-    [() '()]
-    [v:id #:when (quoted?)
-          (match (identifier-binding #'v (current-phase))
-            [(list src-mod src-id _ _ src-phase _ _)
-             (define-values (v u) (module-path-index-split src-mod))
-             (cond
-               [(and (false? v) (false? u))
-                (unless (equal? src-phase (current-phase))
-                  (error 'get-quoted-binding
-                         "Identifier phase is ~a, expecte ~a."
-                         src-phase (current-phase)))
-                (list stx)]
-               [v '()])]
-            [_ '()])]
-    [_ '()]))
-
-;;;----------------------------------------------------------------------------
-
-
+; Just like findf but returns user defined value if not found
+(define (my-findf lam l [not-found #f])
+  (let ((found? (findf lam l)))
+    (if found? found? not-found)))
 

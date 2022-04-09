@@ -1,3 +1,4 @@
+ROOT_DIR=$(pwd)
 
 for FILE in test_programs/*.rkt; do 
   echo ""
@@ -5,14 +6,19 @@ for FILE in test_programs/*.rkt; do
   racket compiler.rkt $FILE
 done
 
-cd out/
+cp $ROOT_DIR/root_index.js $ROOT_DIR/out/index.js
+
+cd $ROOT_DIR/out/
 
 for FILE in *.wat; do 
   echo ""
   echo "******* Running: $FILE ******"
+
   wat2wasm $FILE -o a.wasm
   node index.js
-  rm a.wasm
+
+  # cleanup
+  rm a.wasm $FILE
 done
 
-cd ../
+cd $ROOT_DIR
