@@ -2,18 +2,12 @@
 
 (provide (all-defined-out))
 
-(struct Program ([provides : Provide*] [globals : (Listof VarDef)] [funcs : (Listof FuncDef)]) #:transparent)
+(struct Program ([provides : Provide*] [globals : (Listof Var)] [funcs : (Listof Func)]) #:transparent)
 
-(struct FuncDef ([id : Id] [func : Func]) #:transparent)
-(struct VarDef ([id : Id] [val : Expr]) #:transparent)
+(define-type TopDefinition (U Func Var))
+(struct Var ([id : Id] [expr : Expr]) #:transparent)
 
-; Used for generating our AST
-(define-type TopVal (U Func Expr))
-
-; TODO: Support multiple return vals
-(struct TopDef ([id : Id] [val : TopVal]) #:transparent)
-
-(struct Func ([args : (Listof Id)] [locals : (Listof Id)] [body : (Listof Expr)]) #:transparent)
+(struct Func ([name : Id] [params : (Listof Id)] [locals : (Listof Id)] [body : (Listof Expr)]) #:transparent)
 
 (define-type Expr (U App CaseLambda If LetVals LetRecVals Begin Begin0 Set TopId Value))
 
@@ -35,7 +29,7 @@
 
 ; Forms for provide
 
-(struct Provide* ([ps : (Listof Provide)]) #:transparent)
+(struct Provide* ([exports : (Listof Provide)]) #:transparent)
 (define-type Provide (U SimpleProvide RenamedProvide AllDefined PrefixAllDefined))
 (struct SimpleProvide ([id : Symbol]) #:transparent)
 (struct RenamedProvide ([local-id : Symbol] [exported-id : Symbol]) #:transparent)

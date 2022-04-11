@@ -27,9 +27,9 @@
 (define (build-ast exp)
   (let ((ast (process-top exp)))
     (let ((provides (my-findf Provide*? ast (Provide* '())))
-          (vardefs (filter VarDef? ast))
-          (funcdefs (append (filter FuncDef? ast)
-                            (hash-map LAMBDAS (lambda (k v) (FuncDef (Id k) v))))))
+          (vardefs (filter Var? ast))
+          (funcdefs (append (filter Func? ast)
+                            (hash-map LAMBDAS (lambda (k func) func)))))
       (hash-clear! LAMBDAS)
       (Program provides vardefs funcdefs))))
 
@@ -70,8 +70,8 @@
            (p-expr (process-expr #'expr #t)))
        ; TODO: Support multiple return vals
        (if (Func? p-expr)
-           (FuncDef (first p-ids) p-expr)
-           (VarDef (first p-ids) p-expr)))]
+           (Func (first p-ids) (Func-params p-expr) '() (Func-body p-expr))
+           (Var (first p-ids) p-expr)))]
     ; WILLDO? TODO: Ask clements about these
     [(define-syntaxes (id ...) expr) (error 'unsupported)]
     [(#%require raw-require-spec ...) (error 'unsupported)]
@@ -85,13 +85,13 @@
        ; If we are defining a top level lambda then we know it is named
        ;  otherwise the function will be an unnamed lambda
        (if named?
-           (Func p-formals '() p-exprs)
-           (let ((id (gensym 'lambda)))
-             (hash-set! LAMBDAS id (Func p-formals '() p-exprs))
+           (Func (Id 'FILL_IN) p-formals '() p-exprs)
+           (let ((id (gensym '__lambda)))
+             (hash-set! LAMBDAS id (Func (Id id) p-formals '() p-exprs))
              (Id id))))]
     ; TODO: We will just make a lambda for each variation and call it based on the num of args given
     [(case-lambda (formals body) ...)
-     (CaseLambda (map (lambda (f b) (Func (process-formal f) '() (process-expr b)))
+     (CaseLambda (map (lambda (f b) (Func (Id 'CL_TODO) (process-formal f) '() (process-expr b)))
                       (stx->list #'(formals ...))
                       (stx->list #'(body ...))))]
     [(if test then else)
@@ -134,23 +134,23 @@
 
 (define (process-formal formal)
   (kernel-syntax-case formal #f
-    [(id ...) (map (lambda (i) (Id (get-true-id i))) (stx->list #'(id ...)))]
-    [id (Id (get-true-id #'id))]
+    [(id ...) (map get-true-id (stx->list #'(id ...)))]
+    [id (get-true-id #'id)]
     ; TODO: IS this a fine way to process this? Just treat it all as a list??
     ;  Or should we preserve the pairness?
     [(id1 ... . id2) (append
-                      (map (lambda (i) (Id (get-true-id i))) (stx->list #'(id1 ...)))
-                      (list (Id (get-true-id #'id2))))]
+                      (map get-true-id (stx->list #'(id1 ...)))
+                      (list (get-true-id #'id2)))]
     [other (error 'rasm "Unknown formal " formal)]))
 
 (define (get-true-id id)
-  (let ((bound? (identifier-binding id)))
+  (Id (let ((bound? (identifier-binding id)))
     (match bound?
       [#f (syntax-e id)]
       ['lexical (syntax-e id)]
       [(list (? symbol? s)) s]
       [(list l ...) (second l)]
-      [other (error 'unknown "Unknown Symbol ~v" id)])))
+      [other (error 'unknown "Unknown Symbol ~v" id)]))))
 
 (define (process-quote datum)
   (if (eof-object? (syntax-e datum))

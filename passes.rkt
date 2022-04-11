@@ -8,43 +8,42 @@
 
 (define passes '(unique-variables))
 
+; TODO: We need to lift all global declarations to only be constant expressions and then initialize them, expressions specifically
 
 (define (full-pass [ast : Program])
   (typecheck ast)
-  (unique-variables ast)
-  (lift-locals ast))
+  (lift-locals (unique-variables ast)))
 
 ; Super simple typecheck but can elaborate later
 ; Juse make sure no top level definitions overshadow each other
 (define (typecheck [ast : Program]) : Void
   (let ((dupes (check-duplicates (append
-                                  (map (lambda ([fd : FuncDef]) (Id-sym (FuncDef-id fd))) (Program-funcs ast))
-                                  (map (lambda ([vd : VarDef]) (Id-sym (VarDef-id vd))) (Program-globals ast))))))
+                                  (map (lambda ([f : Func]) (Id-sym (Func-name f))) (Program-funcs ast))
+                                  (map (lambda ([vd : Var]) (Id-sym (Var-id vd))) (Program-globals ast))))))
     (when dupes (error 'typecheck (~a "ERROR: Overshadowing Globals: " dupes)))))
 
 ; We force globals to be unique, so just go through expressions and uniquify tgem
 (define (unique-variables [ast : Program]) : Program
   (Program
    (Program-provides ast)
-   (map (lambda ([vd : VarDef])
-          (VarDef (VarDef-id vd) (uniquify-expr (VarDef-val vd) (make-hash))))
+   (map (lambda ([vd : Var])
+          (Var (Var-id vd) (uniquify-expr (Var-expr vd) (make-hash))))
         (Program-globals ast))
-   (map (lambda ([fd : FuncDef])
-          (FuncDef (FuncDef-id fd)
-                   (uniquify-func (FuncDef-func fd))))
-        (Program-funcs ast))))
+   (map uniquify-func (Program-funcs ast))))
 
 (define (uniquify-func [func : Func]) : Func
   (let ((new-args (map (lambda ([id1 : Id] [id2 : Id]) (cons (Id-sym id1) (gensym (Id-sym id2))))
-                       (Func-args func)
-                       (Func-args func))))
-    (Func (map (lambda ([id-pair : (Pairof Symbol Symbol)]) (Id (cdr id-pair))) new-args)
+                       (Func-params func)
+                       (Func-params func))))
+    (Func (Func-name func)
+          (map (lambda ([id-pair : (Pairof Symbol Symbol)]) (Id (cdr id-pair))) new-args)
           (Func-locals func)
           (map (lambda ([expr : Expr]) (uniquify-expr expr (make-hash new-args))) (Func-body func)))))
 
 
 (define (uniquify-expr [expr : Expr] [env : Env]) : Expr
   (match expr
+    ; TODO: I think letvals and letrecvals are handled the same for us, can we combine these???
     [(LetVals ids vals body) (let ((new-ids (map (lambda ([l-id : (Listof Id)])
                                                    (map (lambda ([id1 : Id] [id2 : Id])
                                                           (let ((p-ids (cons (Id-sym id1) (gensym (Id-sym id2)))))
@@ -76,28 +75,35 @@
     [(Id s) (uniquify-id s env)]
     [other expr]))
 
+; We need to know all the local variables of a function so we can declare them at the beginning of the function
 (define (lift-locals [ast : Program]) : Program
   (Program
    (Program-provides ast)
    (Program-globals ast)
-   (map (lambda ([fd : FuncDef])
-          (FuncDef (FuncDef-id fd)
-                   (lift-func-locals (FuncDef-func fd))))
+   (map (lambda ([f : Func])
+          (Func (Func-name f)
+                (Func-params f)
+                (lift-func-locals (Func-body f))
+                (Func-body f)))
         (Program-funcs ast))))
 
-(define (lift-func-locals [f : Func]) : Func
-  (Func (Func-args f)
-        (get-local-syms (Func-body f))
-        (Func-body f)))
-
-(define (get-local-syms [body : (Listof Expr)]) : (Listof Id)
+(define (lift-func-locals [body : (Listof Expr)]) : (Listof Id)
   (append-map
    (lambda ([e : Expr]) : (Listof Id)
      (match e
-       [(LetVals ids vals body) (cast (flatten ids) (Listof Id))]
-       [(LetRecVals ids vals body) (cast (flatten ids) (Listof Id))]
+       [(LetVals ids vals body) (append (cast (flatten ids) (Listof Id)) (lift-func-locals body))]
+       [(LetRecVals ids vals body) (append (cast (flatten ids) (Listof Id)) (lift-func-locals body))]
+       [(App fn args) (lift-func-locals args)]
+       [(If test t f) (append (lift-func-locals (list test)) (lift-func-locals (list t)) (lift-func-locals (list f)))]
+       [(Begin exprs) (lift-func-locals exprs)]
+       [(Begin0 exprs) (lift-func-locals exprs)]
+       [(Set id expr) (lift-func-locals (list expr))]
+       [(Id s) '()]
        [other '()]))
    body))
 
 (define (uniquify-id [s : Symbol] [env : Env]) : Id
   (Id (if (hash-has-key? env s) (hash-ref env s) s)))
+
+
+

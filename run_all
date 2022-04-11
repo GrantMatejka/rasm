@@ -18,7 +18,7 @@ for FILE in *.wat; do
   node index.js
 
   # cleanup
-  rm a.wasm $FILE
+  # rm a.wasm $FILE
 done
 
 cd $ROOT_DIR

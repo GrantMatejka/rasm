@@ -1,4 +1,4 @@
-#lang racket
+#lang typed/racket
 
 (require "types.rkt")
 
@@ -12,48 +12,50 @@
                '< 'f64.lt
                'equal? 'f64.eq))
 
-(define need-init '())
+(define need-init : (Listof TopDefinition) '())
 
-(define (build-wat ast)
+(define (build-wat [ast : Program]) : Sexp
   `(module
        ,@(filter-map process-topdef (Program-globals ast))
      ,@(filter-map process-topdef (Program-funcs ast))
      (func $init ,@(filter-map build-init need-init))
      (start $init)))
 
-(define (process-topdef def)
+(define (process-topdef [def : TopDefinition]) : Sexp
   (match def
-    ; TODO: This is a type hack
-    [(VarDef (Id id) (Int n)) `(global ,(wat-name id) (mut f64) (f64.const ,n))]
-    [(VarDef (Id id) (Float n)) `(global ,(wat-name id) (mut f64) (f64.const ,n))]
-    [(VarDef (Id id) (App f args)) (set! need-init (cons def need-init))
-                                          `(global ,(wat-name id) (mut f64) (f64.const 0))]
-    [(FuncDef (Id fn) (Func params locals body))
+    ; TODO: All types are hacks
+    ; We specifically need to handle applications so we can initialize the values later
+    ; This is necessary as global initializer expression must be a constant expression
+    [(Var (Id id) (App f args)) (begin
+                                     (set! need-init (cons def need-init))
+                                     `(global ,(wat-name id) (mut f64) (f64.const 0)))]
+    [(Var (Id id) expr) `(global ,(wat-name id) (mut f64) ,@(process-expr expr))]
+    [(Func (Id fn) params locals body)
      `(func ,(wat-name fn)
             ; HACK: Is this really necessary, also a hack bc we export everything that isn't a an anonymous function
             ,@(if (anon? fn) '() (list `(export ,(~a '\" fn '\"))))
-            ,@(map (lambda (p) `(param ,(wat-name p) f64)) params)
+            ,@(map (lambda ([p : (U Id Symbol)]) `(param ,(wat-name p) f64)) params)
             (result f64)
-            ,@(map (lambda (l) `(local ,(wat-name l) f64)) locals)
+            ,@(map (lambda ([l : (U Id Symbol)]) `(local ,(wat-name l) f64)) locals)
             ,@(append-map process-expr body))]
     [other (error 'unsupported (~a def))]))
 
-(define (process-expr expr)
+(define (process-expr [expr : Expr]) : (Listof Sexp)
   (match expr
     [(App (Id fn) args)
      (list (if (hash-has-key? prims fn)
-         `(,(hash-ref prims fn) ,@(append-map process-expr args))
-         `(call ,(wat-name fn) ,@(append-map process-expr args))))]
+               `(,(hash-ref prims fn) ,@(append-map process-expr args))
+               `(call ,(wat-name fn) ,@(append-map process-expr args))))]
     [(If test t f)
      (list `(if (result f64) ,@(process-expr test)
-          (then ,@(process-expr t))
-          (else ,@(process-expr f))))]
+                (then ,@(process-expr t))
+                (else ,@(process-expr f))))]
     ; TODO: Actually handle ids and vals
     [(LetVals ids vals exprs)
      (append
       (map
        ; TODO: HAck around not actually supporting multiple return vals
-       (lambda (id val) `(local.set ,(wat-name (first id)) ,@(process-expr val)))
+       (lambda ([l-id : (Listof Id)] [val : Expr]) `(local.set ,(wat-name (first l-id)) ,@(process-expr val)))
        ids
        vals)
       (append-map process-expr exprs))]
@@ -65,31 +67,23 @@
     [(Int n) (list `(f64.const ,n))]
     [other (error 'unsupported (~a expr))]))
 
-(define (build-init stmt)
-  (match stmt
-    [(TopDef (list (Id id)) (App f args))
-     `(global.set ,(wat-name id) ,(process-expr (TopDef-val stmt)))]
+(define (build-init [def : TopDefinition]) : (U Sexp #f)
+  (match def
+    [(Var (list (Id id)) (App f args))
+     `(global.set ,(wat-name id) ,(process-expr (Var-expr def)))]
     [other #f]))
 
-(define (wat-name id)
+(define (wat-name [id : (U Id Symbol)]) : Symbol
   (string->symbol
    (~a "$" 
        (match id
          [(Id s) s]
          [(? symbol? id) id]
-         [other (error 'unsupported id)]))))
+         [other (error 'unsupported (~a id))]))))
 
 
 ; Whether we have an anonymous lambda or not
-(define (anon? fn)
-  (string-contains? (~a fn) "lambda"))
+(define (anon? [fn : Symbol]) : Boolean
+  (string-contains? (~a fn) "__lambda"))
 
-; NEEDED???
-; TODO: We need to use this if we may have a list of statements
-(define (block bl)
-  (let ((p-bl (process-expr bl)))
-    (if (decon? p-bl) p-bl (list p-bl))))
 
-; Tells us if we need to deconstruct or not
-(define (decon? src)
-  (and (list? src) (andmap list? src)))

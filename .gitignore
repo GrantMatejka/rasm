@@ -3,3 +3,4 @@
 
 dev/
 out/*.wat
+out/*.wasm
