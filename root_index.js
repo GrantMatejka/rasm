@@ -13,12 +13,20 @@ const importObject = {
 
 WebAssembly.instantiate(new Uint8Array(bytes), importObject).then((obj) => {
   // TODO: Let's just call and print every exported function
-  for (const exp in obj.instance.exports) {
-    const func = obj.instance.exports[exp];
+  for (const eprop in obj.instance.exports) {
+    const exp = obj.instance.exports[eprop];
 
-    const params = Array(func.length)
-      .fill(0)
-      .map((_, __) => Math.floor(Math.random() * 10));
-    console.log(`-----------------\n${exp} called with [ ${params} ] returned: ${func(...params)}`)
+    if (typeof exp === "function") {
+      const params = Array(exp.length)
+        .fill(0)
+        .map((_, __) => Math.floor(Math.random() * 10));
+      console.log(
+        `-----------------\n${eprop} called with [ ${params} ] returned: ${exp(
+          ...params
+        )}`
+      );
+    } else {
+      console.log(`-----------------\nExported ${eprop} with Value ${exp.value}`);
+    }
   }
 });

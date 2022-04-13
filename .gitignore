@@ -4,3 +4,5 @@
 dev/
 out/*.wat
 out/*.wasm
+
+.vscode

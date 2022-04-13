@@ -26,12 +26,11 @@
 ; exp is a fully expanded racket program
 (define (build-ast exp)
   (let ((ast (process-top exp)))
-    (let ((provides (my-findf Provide*? ast (Provide* '())))
-          (vardefs (filter Var? ast))
-          (funcdefs (append (filter Func? ast)
-                            (hash-map LAMBDAS (lambda (k func) func)))))
+    (let-values (((p d) (partition Provide?
+                          (append ast
+                                  (hash-map LAMBDAS (lambda (k func) func))))))
       (hash-clear! LAMBDAS)
-      (Program provides vardefs funcdefs))))
+      (FEP p d))))
 
 (define LAMBDAS (make-hash))
 
@@ -48,7 +47,7 @@
 ; This handles module and submodule form, any false return values mean the form is ignored
 (define (process-mod mod-form)
   (kernel-syntax-case mod-form #f
-    [(#%provide spec ...) (Provide* (append-map parse-provide (syntax->list #'(spec ...))))]
+    [(#%provide spec ...) (append-map parse-provide (syntax->list #'(spec ...)))]
     ; We only expect one sub module max, this happens if the expanded file has #lang
     [(module id module-path (#%plain-module-begin module-level-form ...))
      (if (equal? (syntax-e #'id) 'configure-runtime)
@@ -70,7 +69,7 @@
            (p-expr (process-expr #'expr #t)))
        ; TODO: Support multiple return vals
        (if (Func? p-expr)
-           (Func (first p-ids) (Func-params p-expr) '() (Func-body p-expr))
+           (Func (first p-ids) (Func-params p-expr) (Func-body p-expr))
            (Var (first p-ids) p-expr)))]
     ; WILLDO? TODO: Ask clements about these
     [(define-syntaxes (id ...) expr) (error 'unsupported)]
@@ -85,13 +84,13 @@
        ; If we are defining a top level lambda then we know it is named
        ;  otherwise the function will be an unnamed lambda
        (if named?
-           (Func (Id 'FILL_IN) p-formals '() p-exprs)
+           (Func (Id 'FILL_IN) p-formals p-exprs)
            (let ((id (gensym '__lambda)))
-             (hash-set! LAMBDAS id (Func (Id id) p-formals '() p-exprs))
+             (hash-set! LAMBDAS id (Func (Id id) p-formals p-exprs))
              (Id id))))]
     ; TODO: We will just make a lambda for each variation and call it based on the num of args given
     [(case-lambda (formals body) ...)
-     (CaseLambda (map (lambda (f b) (Func (Id 'CL_TODO) (process-formal f) '() (process-expr b)))
+     (CaseLambda (map (lambda (f b) (Func (Id 'CL_TODO) (process-formal f) (process-expr b)))
                       (stx->list #'(formals ...))
                       (stx->list #'(body ...))))]
     [(if test then else)
