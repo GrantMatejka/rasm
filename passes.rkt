@@ -5,18 +5,17 @@
 
 (provide full-pass)
 
+; Represents a temporary stage of fully expanded programs where we introduce expressions used to initialize global values
 (struct FEP2 FEP ([init : (Listof Expr)]) #:transparent)
-(define-type Env (HashTable Symbol Symbol))
-(define env : (HashTable Symbol Id) (make-hash))
+(define-type Env (HashTable Symbol Id))
 
 (define (full-pass [ast : FEP]) : Module
-  (hash-clear! env)
   (typecheck ast)
-  (lift-closures (generate-init (uniquify ast))))
+  (lift-closures (generate-init (lift-lambdas (uniquify ast)))))
 
 ; Super simple typecheck but can elaborate later
 ; Juse make sure no top level definitions overshadow each other
-; TODO: What static things must we know that differ betweenm racket and wasm??
+; TODO: What static things must we know that differ between racket and wasm??
 (define (typecheck [ast : FEP]) : Void
   (let ((dupes (check-duplicates
                 (append
@@ -26,54 +25,131 @@
                       (FEP-defs ast))))))
     (when dupes (error 'typecheck (~a "ERROR: Overshadowing Globals: " dupes)))))
 
-; We force globals to be unique, so just go through expressions and uniquify them
 (define (uniquify [ast : FEP]) : FEP
   (FEP
-     (FEP-provides ast)
-     (map (lambda ([td : TopDefinition])
-            (if (Func? td)
-                (uniquify-func td)
-                (Var (Var-id td) (uniquify-expr (Var-expr td)))))
-          (FEP-defs ast))))
+   (FEP-provides ast)
+   (map (lambda ([td : TopDefinition])
+          (if (Func? td)
+              (uniquify-func td)
+              ; We force globals to be unique so we don't need to uniquify global ids
+              (Var (Var-id td) (uniquify-expr (Var-expr td) (make-hash '())))))
+        (FEP-defs ast))))
 
 (define (uniquify-func [func : Func]) : Func
-  (begin
-    (for-each (lambda ([id : Id]) (hash-set! env (Id-sym id) (Id (gensym (Id-sym id))))) (Func-params func))
+  (let ((starting-env (make-hash (map (lambda ([id : Id]) (cons (Id-sym id) (Id (gensym (Id-sym id))))) (Func-params func)))))
     (Func (Func-name func)
-          (map (lambda ([id : Id]) (hash-ref env (Id-sym id))) (Func-params func))
-          (map (lambda ([expr : Expr]) (uniquify-expr expr)) (Func-body func)))))
+          (map (lambda ([id : Id]) (hash-ref starting-env (Id-sym id))) (Func-params func))
+          (map (lambda ([expr : Expr]) (uniquify-expr expr starting-env)) (Func-body func)))))
 
 
-(define (uniquify-expr [expr : Expr]) : Expr
+(define (uniquify-expr [expr : Expr] [env : Env]) : Expr
+  (define ue-helper (lambda ([e : Expr]) (uniquify-expr e env)))
   (match expr
+    [(Lam params body) (Lam (map (lambda ([i : Id]) (uniquify-id i env)) params) (map ue-helper body))]
     ; TODO: I think we will handle these the same???
-    [(LetVals ids vals body) (uniquify-let ids vals body)]
-    [(LetRecVals ids vals body)  (uniquify-let ids vals body)]
-    [(App fn args) (App (uniquify-id fn) (map uniquify-expr args))]
+    ;TODO: LetRec needs a new-env for each val expression
+    [(LetVals ids vals body) (uniquify-let ids vals body env)]
+    [(LetRecVals ids vals body) (uniquify-letrec ids vals body env)]
+    ; The env will hold the name of any lambdas we lift
+    [(App fn args) (App (uniquify-l/id fn env) (map ue-helper args))]
     [(CaseLambda funcs) (CaseLambda (map uniquify-func funcs))]
-    [(If test t f) (If (uniquify-expr test) (uniquify-expr t) (uniquify-expr f))]
-    [(Begin exprs) (Begin (map uniquify-expr exprs))]
-    [(Begin0 exprs) (Begin0 (map uniquify-expr exprs))]
-    [(Set id expr) (Set (uniquify-id id) (uniquify-expr expr))]
-    [(Id s) (uniquify-id (Id s))]
+    [(If test t f) (If (ue-helper test) (ue-helper t) (ue-helper f))]
+    [(Begin exprs) (Begin (map ue-helper exprs))]
+    [(Begin0 exprs) (Begin0 (map ue-helper exprs))]
+    [(Set id expr) (Set (uniquify-id id env) (ue-helper expr))]
+    [(Id s) (uniquify-id (Id s) env)]
     [other expr]))
 
-(define (uniquify-let [ids : (Listof (Listof Id))] [vals : (Listof Expr)] [body : (Listof Expr)]) : LetVals
-  (let ((new-ids (map (lambda ([l-id : (Listof Id)])
-                           (map (lambda ([id1 : Id] [id2 : Id])
-                                  (let ((p-ids (cons (Id-sym id1) (gensym (Id-sym id2)))))
-                                    (hash-set! env (car p-ids) (Id (cdr p-ids)))
-                                    (Id (cdr p-ids))))
-                                l-id
-                                l-id))
-                         ids)))
-       (LetVals new-ids
-                (map uniquify-expr vals)
-                (map uniquify-expr body))))
+(define (uniquify-l/id [l/i : (U Lam Id)] [env : Env]) : (U Lam Id)
+  (match l/i
+    [(Lam params body) (Lam (map (lambda ([i : Id]) (uniquify-id i env)) params)
+                            (map (lambda ([e : Expr]) (uniquify-expr e env)) body))]
+    [(Id s) (uniquify-id (Id s) env)]
+    [other (error 'uniquify "Unknown ~a" l/i)]))
 
-(define (uniquify-id [id : Id]) : Id
+(define (uniquify-let [ids : (Listof (Listof Id))] [vals : (Listof Expr)] [body : (Listof Expr)] [env : Env]) : LetVals
+  (let ((new-env (hash-copy env)))
+    (let ((new-ids (map (lambda ([l-id : (Listof Id)])
+                          (map (lambda ([id1 : Id] [id2 : Id])
+                                 (let ((p-ids (cons (Id-sym id1) (gensym (Id-sym id2)))))
+                                   (hash-set! new-env (car p-ids) (Id (cdr p-ids)))
+                                   (Id (cdr p-ids))))
+                               l-id
+                               l-id))
+                        ids)))
+      (LetVals new-ids
+               (map (lambda ([e : Expr]) (uniquify-expr e env)) vals)
+               (map (lambda ([e : Expr]) (uniquify-expr e new-env)) body)))))
+
+; Just like uniquify-let but we pass the new-env to each of the expr's
+(define (uniquify-letrec [ids : (Listof (Listof Id))] [vals : (Listof Expr)] [body : (Listof Expr)] [env : Env]) : LetVals
+  (let ((new-env (hash-copy env)))
+    (let ((new-ids (map (lambda ([l-id : (Listof Id)])
+                          (map (lambda ([id1 : Id] [id2 : Id])
+                                 (let ((p-ids (cons (Id-sym id1) (gensym (Id-sym id2)))))
+                                   (hash-set! new-env (car p-ids) (Id (cdr p-ids)))
+                                   (Id (cdr p-ids))))
+                               l-id
+                               l-id))
+                        ids)))
+      (LetVals new-ids
+               (map (lambda ([e : Expr]) (uniquify-expr e new-env)) vals)
+               (map (lambda ([e : Expr]) (uniquify-expr e new-env)) body)))))
+
+(define (uniquify-id [id : Id] [env : Env]) : Id
   (if (hash-has-key? env (Id-sym id)) (hash-ref env (Id-sym id)) id))
 
+(define LAMBDAS : (Listof Func) '())
+(define (lift-lambdas [ast : FEP]) : FEP
+  (set! LAMBDAS '())
+  (let ((var-lams (map lift-var-lambdas
+                       (filter-map (lambda ([td : TopDefinition]) (if (Var? td) td #f)) (FEP-defs ast)))))
+    (FEP
+     (FEP-provides ast)
+     (append
+      (map (lambda ([td : TopDefinition])
+             (if (Func? td) (lift-func-lambdas td) (lift-var-lambdas td)))
+           (FEP-defs ast))
+      LAMBDAS))))
+
+(define (lift-func-lambdas [f : Func]) : Func
+  (Func (Func-name f)
+        (Func-params f)
+        (map lift-expr-lambdas (Func-body f))))
+
+(define (lift-expr-lambdas [e : Expr]) : Expr
+  (match e
+    [(Lam params body)
+     (let ((name (Id (gensym '__lambda))))
+       (set! LAMBDAS (cons (Func name params body) LAMBDAS))
+       name)]
+    [(LetVals ids vals body) (LetVals ids
+                                      (map lift-expr-lambdas vals)
+                                      (map lift-expr-lambdas body))]
+    [(LetRecVals ids vals body) (LetRecVals ids
+                                            (map lift-expr-lambdas vals)
+                                            (map lift-expr-lambdas body))]
+    [(App fn args) (App (lift-l/i-lambdas fn)
+                        (map lift-expr-lambdas args))]
+    [(CaseLambda funcs) (CaseLambda (map lift-func-lambdas funcs))]
+    [(If test t f) (If (lift-expr-lambdas test) (lift-expr-lambdas t) (lift-expr-lambdas f))]
+    [(Begin exprs) (Begin (map lift-expr-lambdas exprs))]
+    [(Begin0 exprs) (Begin0 (map lift-expr-lambdas exprs))]
+    [(Set id expr) (Set id (lift-expr-lambdas expr))]
+    [(Id s) (Id s)]
+    [other e]))
+
+(define (lift-l/i-lambdas [l/i : (U Lam Id)]) : Id
+  (match l/i
+    [(Lam params body)
+     (let ((name (Id (gensym '__lambda))))
+       (set! LAMBDAS (cons (Func name params body) LAMBDAS))
+       name)]
+    [(Id s) (Id s)]
+    [other (error 'lift-lambdas "Unknown ~a" l/i)]))
+
+(define (lift-var-lambdas [v : Var]) : Var
+  (Var (Var-id v) (lift-expr-lambdas (Var-expr v))))
 
 (define (generate-init [ast : FEP]) : FEP2
   (FEP2

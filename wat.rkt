@@ -18,7 +18,6 @@
 
 (define need-init : (Listof TopDefinition) '())
 
-; TODO: We shopuld build the initialization function in one of the passes and then we can lift the locals and everything like we're supposed to
 (define (build-wat [mod : Module]) : Sexp
   `(module
        ,@(map (lambda ([g : Id]) (declare-globals mod g)) (Module-globals mod))
@@ -50,14 +49,14 @@
   (match expr
     [(App (Id fn) args)
      (let ((func (findf (lambda ([c : Closure]) (equal? fn (Id-sym (Closure-name c)))) funcs)))
-         (list (if (hash-has-key? prims fn)
-               `(,(hash-ref prims fn) ,@(append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) args))
-               `(call ,(wat-name (if (hash-has-key? env fn) (hash-ref env fn) fn))
-                      ,@(append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) args)
-                      ; We know args will handle whatever arguments to pass, so any leftover params are env vars to pass in
-                      ,@(if func
-                            (append-map (lambda ([i : Id]) (process-expr globals locals funcs i)) (Closure-env-params func))
-                            '())))))]
+       (list (if (hash-has-key? prims fn)
+                 `(,(hash-ref prims fn) ,@(append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) args))
+                 `(call ,(wat-name (if (hash-has-key? env fn) (hash-ref env fn) fn))
+                        ,@(append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) args)
+                        ; We know args will handle whatever arguments to pass, so any leftover params are env vars to pass in
+                        ,@(if func
+                              (append-map (lambda ([i : Id]) (process-expr globals locals funcs i)) (Closure-env-params func))
+                              '())))))]
     [(If test t f)
      (list `(if (result f64) ,@(process-expr globals locals funcs test)
                 (then ,@(process-expr globals locals funcs t))

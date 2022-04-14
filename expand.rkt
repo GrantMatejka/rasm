@@ -26,13 +26,8 @@
 ; exp is a fully expanded racket program
 (define (build-ast exp)
   (let ((ast (process-top exp)))
-    (let-values (((p d) (partition Provide?
-                          (append ast
-                                  (hash-map LAMBDAS (lambda (k func) func))))))
-      (hash-clear! LAMBDAS)
+    (let-values (((p d) (partition Provide? ast)))
       (FEP p d))))
-
-(define LAMBDAS (make-hash))
 
 (define (process-top top-form)
   (kernel-syntax-case top-form #f
@@ -85,9 +80,7 @@
        ;  otherwise the function will be an unnamed lambda
        (if named?
            (Func (Id 'FILL_IN) p-formals p-exprs)
-           (let ((id (gensym '__lambda)))
-             (hash-set! LAMBDAS id (Func (Id id) p-formals p-exprs))
-             (Id id))))]
+           (Lam p-formals p-exprs)))]
     ; TODO: We will just make a lambda for each variation and call it based on the num of args given
     [(case-lambda (formals body) ...)
      (CaseLambda (map (lambda (f b) (Func (Id 'CL_TODO) (process-formal f) (process-expr b)))
@@ -144,12 +137,12 @@
 
 (define (get-true-id id)
   (Id (let ((bound? (identifier-binding id)))
-    (match bound?
-      [#f (syntax-e id)]
-      ['lexical (syntax-e id)]
-      [(list (? symbol? s)) s]
-      [(list l ...) (second l)]
-      [other (error 'unknown "Unknown Symbol ~v" id)]))))
+        (match bound?
+          [#f (syntax-e id)]
+          ['lexical (syntax-e id)]
+          [(list (? symbol? s)) s]
+          [(list l ...) (second l)]
+          [other (error 'unknown "Unknown Symbol ~v" id)]))))
 
 (define (process-quote datum)
   (if (eof-object? (syntax-e datum))

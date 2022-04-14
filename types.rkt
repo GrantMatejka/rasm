@@ -11,9 +11,10 @@
 
 (struct Closure ([name : Id] [params : (Listof Id)] [env-params : (Listof Id)] [locals : (Listof Id)] [body : (Listof Expr)]) #:transparent)
 
-(define-type Expr (U App CaseLambda If LetVals LetRecVals Begin Begin0 Set TopId Value))
+(define-type Expr (U Lam App CaseLambda If LetVals LetRecVals Begin Begin0 Set TopId Value))
 
-(struct App ([func : Id] [args : (Listof Expr)]) #:transparent)
+(struct Lam ([params : (Listof Id)] [body : (Listof Expr)]) #:transparent)
+(struct App ([func : (U Id Lam)] [args : (Listof Expr)]) #:transparent)
 (struct CaseLambda ([funcs : (Listof Func)]) #:transparent)
 (struct If ([test : Expr] [then : Expr] [else : Expr]) #:transparent)
 (struct LetVals ([ids : (Listof (Listof Id))] [val-exprs : (Listof Expr)] [body : (Listof Expr)]) #:transparent)

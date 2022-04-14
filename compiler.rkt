@@ -6,12 +6,10 @@
 (require racket/pretty
          json)
 
-
-; TODO: Fix addL.rkt
-
 ;; TODO: Things of interest
-; - handling lambdas, basically make every lambda a top level func???
+; - handling lambdas, basically make every lambda a top level func??? and use table to refer to them all
 ; -- Maybe take the top level at first and then try to optimize later (with loops)
+; -- Case lambda maybe we can do this with a unique naming scheme
 ; - data types, just hardcode everything to f64 for now bc that's a safe bet
 ; - Provide/exports, we need to actually parse the spec
 ; - Convert Closures -> basically what CS does, need to use wasm tables
@@ -57,8 +55,8 @@
        [source
         ; TODO: Eventually use this
         #;(when (not (output-port? out))
-          (set! out (open-output-file (string-append source ".wat")
-                                      #:exists 'replace)))
+            (set! out (open-output-file (string-append source ".wat")
+                                        #:exists 'replace)))
         (set! in source)]))
 
 (define input (open-input-file in))
