@@ -6,3 +6,4 @@ out/*.wat
 out/*.wasm
 
 .vscode
+compiled/

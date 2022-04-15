@@ -26,6 +26,7 @@
 ; exp is a fully expanded racket program
 (define (build-ast exp)
   (let ((ast (process-top exp)))
+    ; split our top level forms into provides and declarations
     (let-values (((p d) (partition Provide? ast)))
       (FEP p d))))
 
