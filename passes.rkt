@@ -47,7 +47,7 @@
   (match expr
     [(Lam params body) (Lam (map (lambda ([i : Id]) (uniquify-id i env)) params) (map ue-helper body))]
     ; TODO: I think we will handle these the same???
-    ;TODO: LetRec needs a new-env for each val expression
+    ;TODO: LetRec needs a new-env for each val expression??
     [(LetVals ids vals body) (uniquify-let ids vals body env)]
     [(LetRecVals ids vals body) (uniquify-letrec ids vals body env)]
     ; The env will hold the name of any lambdas we lift

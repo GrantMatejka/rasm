@@ -1,7 +1,6 @@
 # Notes
 
-I *believe* all indices in wasm are `u32` 
-SOURCE: https://webassembly.github.io/spec/core/syntax/modules.html#syntax-tableidx
+I *believe* all indices in wasm are `u32` [SOURCE](https://webassembly.github.io/spec/core/syntax/modules.html#syntax-tableidx).
 
 ## Objects
 
@@ -48,9 +47,32 @@ Therefore we have a table of indexes to function labels.
 
 So for our 'Closure' type we can use an i32 to represent the index to the table and an i32 to point to the env.
 
-We must use tables to return function objects since we cannot return a label to a function, we can only return an index to the function as its location in the function table.
+We must use tables to return function objects since we cannot return a label to a function, we can only return an index to the function as its location in the function table [SOURCE](https://developer.mozilla.org/en-US/docs/WebAssembly/Understanding_the_text_format#webassembly_tables).
 
-SOURCE: https://developer.mozilla.org/en-US/docs/WebAssembly/Understanding_the_text_format#webassembly_tables
+#### Example
+
+```scheme
+(module add racket
+  (provide add)
+
+  ; Returns an `adder` function
+  ;  where `x` should be bound
+  ;  in the `adder` function's env
+  (define (make-adder x)
+    (lambda (y) (+ x y)))
+
+  ; `a` should be a function object
+  ;  with an env of `x` => 19
+  (define a (make-adder 19))
+
+
+  ; Dereferences function object a
+  ; -> call_indirect with idx of a
+  ; -> env populates x with 19
+  ; Should return 22
+  (define (add) (a 3)))
+  ```
+
 
 ### Pairs
 
