@@ -80,43 +80,43 @@
        ; If we are defining a top level lambda then we know it is named
        ;  otherwise the function will be an unnamed lambda
        (if named?
-           (Func (Id 'FILL_IN) p-formals p-exprs)
-           (Lam p-formals p-exprs)))]
+           (Func 'FILL_IN p-formals p-exprs)
+           (L0-Lam p-formals p-exprs)))]
     ; TODO: We will just make a lambda for each variation and call it based on the num of args given
     [(case-lambda (formals body) ...)
-     (CaseLambda (map (lambda (f b) (Func (Id 'CL_TODO) (process-formal f) (process-expr b)))
+     (CaseLambda (map (lambda (f b) (Func 'CL_TODO (process-formal f) (process-expr b)))
                       (stx->list #'(formals ...))
                       (stx->list #'(body ...))))]
     [(if test then else)
      (let ((p-test (process-expr #'test))
            (p-then (process-expr #'then))
            (p-else (process-expr #'else)))
-       (If p-test p-then p-else))]
+       (L0-If p-test p-then p-else))]
     [(begin exprs ...)
      (let ((p-exprs (filter-map process-expr (stx->list #'(exprs ...)))))
-       (Begin p-exprs))]
+       (L0-Begin p-exprs))]
     [(begin0 expr1 expr2 ...)
      (let ((p-exprs
             (filter-map process-expr (cons #'expr1 (stx->list #'(expr2 ...))))))
-       (Begin0 p-exprs))]
+       (L0-Begin0 p-exprs))]
     [(let-values ([ids vals] ...) exprs ...)
      (let ((p-ids (filter-map process-expr (stx->list #'(ids ...))))
            (p-vals (filter-map process-expr (stx->list #'(vals ...))))
            (p-exprs (filter-map process-expr (stx->list #'(exprs ...)))))
-       (LetVals p-ids p-vals p-exprs))]
+       (L0-LetVals p-ids p-vals p-exprs))]
     [(letrec-values ([ids vals] ...) exprs ...)
      (let ((p-ids (filter-map process-expr (stx->list #'(ids ...))))
            (p-vals (filter-map process-expr (stx->list #'(vals ...))))
            (p-exprs (filter-map process-expr (stx->list #'(exprs ...)))))
-       (LetRecVals p-ids p-vals p-exprs))]
+       (L0-LetRecVals p-ids p-vals p-exprs))]
     [(#%plain-app expr ...)
      (let ((p-exprs (filter-map process-expr (stx->list #'(expr ...)))))
-       (App (first p-exprs) (rest p-exprs)))]
-    [(set! id expr) (Set (process-formal #'id) (process-expr #'expr))]
+       (L0-App (first p-exprs) (rest p-exprs)))]
+    [(set! id expr) (L0-Set (process-formal #'id) (process-expr #'expr))]
     [(quote datum) (process-quote #'datum)]
     [id (process-formal #'id)]
     [(#%variable-reference id) (process-formal #'id)]
-    [(#%top . id) (TopId (process-formal #'id))]
+    [(#%top . id) (L0-TopId (process-formal #'id))]
     [(#%variable-reference (#%top . id)) (TopId (process-formal #'id))]
     ; TODO: WILL NOT DO??
     [(#%variable-reference) '()]
@@ -137,13 +137,13 @@
     [other (error 'rasm "Unknown formal " formal)]))
 
 (define (get-true-id id)
-  (Id (let ((bound? (identifier-binding id)))
+  (let ((bound? (identifier-binding id)))
         (match bound?
           [#f (syntax-e id)]
           ['lexical (syntax-e id)]
           [(list (? symbol? s)) s]
           [(list l ...) (second l)]
-          [other (error 'unknown "Unknown Symbol ~v" id)]))))
+          [other (error 'unknown "Unknown Symbol ~v" id)])))
 
 (define (process-quote datum)
   (if (eof-object? (syntax-e datum))

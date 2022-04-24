@@ -1,0 +1,265 @@
+(module (; This gives us 256 pages of memory where each page is 64KiB ;) 
+  (import "env" "log_f64" (func $log_f64 (param f64)))
+  (import "env" "log_i64" (func $log_i64 (param i64)))
+  (import "env" "log_i32" (func $log_i32 (param i32)))
+  (memory $mem 256)
+  (export "memory" (memory $mem))
+  (global $__mem_head (mut i32) (i32.const 1))
+  (; ------------------------------ ;)
+  (; ------------------------------ ;)
+  (; ------------start------------- ;)
+  (; ------------------------------ ;)
+  (; ------------------------------ ;)
+  (table 1 funcref)
+  (elem (i32.const 0) $add1)
+  (type $ftype_add1 (func (param i32) (result i32)))
+  (func $init (local $__env_helper i32))
+  (func
+   $add1
+   (export "add1")
+   (param $x7609 i32)
+   (result i32)
+   (local $__env_helper i32)
+   (local $x i32)
+    (local.set $x (call $__allocate_int (i64.const 1)))
+   (local.set $x (call $__add (local.get $x7609) (local.get $x)))
+   (local.get $x))
+  (start $init)
+  (; ------------------------------ ;)
+  (; ------------------------------ ;)
+  (; -------------end-------------- ;)
+  (; ------------------------------ ;)
+  (; ------------------------------ ;)
+  (; Takes in number of bytes to allocate and returns the ptr to the start of the object ;)
+  (; The number of bytes should not include the type id for the object ;)
+  (func
+   $__alloc
+   (param $size i32)
+   (result i32)
+   (local $old_head i32)
+   (local.set $old_head (global.get $__mem_head))
+   (; Add 1 byte for the type id ;)
+   (global.set
+    $__mem_head
+    (i32.add (i32.const 1) (i32.add (global.get $__mem_head) (local.get $size))))
+   (return (local.get $old_head)))
+  (func
+   $__allocate_int
+   (param $val i64)
+   (result i32)
+   (local $ptr i32)
+   (local.set $ptr (call $__alloc (i32.const 8)))
+   (i32.store8 (local.get $ptr) (i32.const 0))
+   (i64.store (i32.add (i32.const 1) (local.get $ptr)) (local.get $val))
+   (local.get $ptr))
+  (; Need to make sure we always run with --experimental-wasm-bigint as shown by v8 team ;)
+  (func
+   $__allocate_float
+   (export "__allocate_float")
+   (param $val f64)
+   (result i32)
+   (local $ptr i32)
+   (local.set $ptr (call $__alloc (i32.const 8)))
+   (i32.store8 (local.get $ptr) (i32.const 1))
+   (f64.store (i32.add (i32.const 1) (local.get $ptr)) (local.get $val))
+   (local.get $ptr))
+  (func
+   $__allocate_pair
+   (param $val1_ptr i32)
+   (param $val2_ptr i32)
+   (result i32)
+   (local $ptr i32)
+   (local.set $ptr (call $__alloc (i32.const 8)))
+   (i32.store8 (local.get $ptr) (i32.const 2))
+   (i32.store (i32.add (i32.const 1) (local.get $ptr)) (local.get $val1_ptr))
+   (i32.store (i32.add (i32.const 5) (local.get $ptr)) (local.get $val2_ptr))
+   (local.get $ptr))
+  (func
+   $__allocate_func
+   (param $ft_idx i32)
+   (param $env_ptr i32)
+   (result i32)
+   (local $ptr i32)
+   (local.set $ptr (call $__alloc (i32.const 8)))
+   (i32.store8 (local.get $ptr) (i32.const 3))
+   (i32.store (i32.add (i32.const 1) (local.get $ptr)) (local.get $ft_idx))
+   (i32.store (i32.add (i32.const 5) (local.get $ptr)) (local.get $env_ptr))
+   (local.get $ptr))
+  (func
+   $__add
+   (param $v1 i32)
+   (param $v2 i32)
+   (result i32)
+   (if (result i32)
+     (i32.eqz (i32.load8_u (local.get $v1)))
+     (then
+      (; v1 === int ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v2)))
+        (then
+         (; v2 === int ;)
+         (call
+          $__allocate_int
+          (i64.add
+           (i64.load (i32.add (i32.const 1) (local.get $v1)))
+           (i64.load (i32.add (i32.const 1) (local.get $v2))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.add
+           (f64.convert_i64_s (i64.load (i32.add (i32.const 1) (local.get $v1))))
+           (f64.load (i32.add (i32.const 1) (local.get $v2))))))))
+     (else
+      (; v1 === float ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v2)))
+        (then
+         (; v2 === int ;)
+         (call $log_f64 (f64.load (i32.add (i32.const 1) (local.get $v1))))
+         (call $log_i64 (i64.load (i32.add (i32.const 1) (local.get $v2))))
+         (call $log_f64 (f64.add
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.convert_i64_s (i64.load (i32.add (i32.const 1) (local.get $v2))))))
+         (call
+          $__allocate_float
+          (f64.add
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.convert_i64_s (i64.load (i32.add (i32.const 1) (local.get $v2)))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.add
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.load (i32.add (i32.const 1) (local.get $v2))))))))))
+  (func
+   $__sub
+   (param $v1 i32)
+   (param $v2 i32)
+   (result i32)
+   (if (result i32)
+     (i32.eqz (i32.load8_u (local.get $v1)))
+     (then
+      (; v1 === int ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v1)))
+        (then
+         (; v2 === int ;)
+         (call
+          $__allocate_int
+          (i64.sub
+           (i64.load (i32.add (i32.const 1) (local.get $v1)))
+           (i64.load (i32.add (i32.const 1) (local.get $v2))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.sub
+           (f64.reinterpret/i64 (i64.load (i32.add (i32.const 1) (local.get $v1))))
+           (f64.load (i32.add (i32.const 1) (local.get $v2))))))))
+     (else
+      (; v1 === float ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v1)))
+        (then
+         (; v2 === int ;)
+         (call
+          $__allocate_float
+          (f64.sub
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.reinterpret/i64 (i64.load (i32.add (i32.const 1) (local.get $v2)))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.sub
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.load (i32.add (i32.const 1) (local.get $v2))))))))))
+  (func
+   $__mul
+   (param $v1 i32)
+   (param $v2 i32)
+   (result i32)
+   (if (result i32)
+     (i32.eqz (i32.load8_u (local.get $v1)))
+     (then
+      (; v1 === int ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v1)))
+        (then
+         (; v2 === int ;)
+         (call
+          $__allocate_int
+          (i64.mul
+           (i64.load (i32.add (i32.const 1) (local.get $v1)))
+           (i64.load (i32.add (i32.const 1) (local.get $v2))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.mul
+           (f64.reinterpret/i64 (i64.load (i32.add (i32.const 1) (local.get $v1))))
+           (f64.load (i32.add (i32.const 1) (local.get $v2))))))))
+     (else
+      (; v1 === float ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v1)))
+        (then
+         (; v2 === int ;)
+         (call
+          $__allocate_float
+          (f64.mul
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.reinterpret/i64 (i64.load (i32.add (i32.const 1) (local.get $v2)))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.mul
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.load (i32.add (i32.const 1) (local.get $v2))))))))))
+  (func
+   $__div
+   (param $v1 i32)
+   (param $v2 i32)
+   (result i32)
+   (if (result i32)
+     (i32.eqz (i32.load8_u (local.get $v1)))
+     (then
+      (; v1 === int ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v1)))
+        (then
+         (; v2 === int ;)
+         (call
+          $__allocate_int
+          (i64.div_s
+           (i64.load (i32.add (i32.const 1) (local.get $v1)))
+           (i64.load (i32.add (i32.const 1) (local.get $v2))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.div
+           (f64.reinterpret/i64 (i64.load (i32.add (i32.const 1) (local.get $v1))))
+           (f64.load (i32.add (i32.const 1) (local.get $v2))))))))
+     (else
+      (; v1 === float ;)
+      (if (result i32)
+        (i32.eqz (i32.load8_u (local.get $v1)))
+        (then
+         (; v2 === int ;)
+         (call
+          $__allocate_float
+          (f64.div
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.reinterpret/i64 (i64.load (i32.add (i32.const 1) (local.get $v2)))))))
+        (else
+         (; v2 === float ;)
+         (call
+          $__allocate_float
+          (f64.div
+           (f64.load (i32.add (i32.const 1) (local.get $v1)))
+           (f64.load (i32.add (i32.const 1) (local.get $v2)))))))))))
+

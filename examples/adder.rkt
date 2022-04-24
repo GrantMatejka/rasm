@@ -1,5 +1,5 @@
 (module add racket
-  (provide add)
+  (provide add a)
 
   (define (make-adder x)
     (λ (y) (+ x y)))

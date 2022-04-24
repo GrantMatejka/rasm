@@ -5,94 +5,212 @@
 
 (provide build-wat)
 
-(define prims (hash
-               '+ 'f64.add
-               '- 'f64.sub
-               '* 'f64.mul
-               '/ 'f64.div
-               '< 'f64.lt
-               'equal? 'f64.eq))
+; Maps function name to wasm table index
+(define-type FuncTable (HashTable Symbol Integer))
+(define func-table : FuncTable (make-hash))
 
-(define-type FuncTable (HashTable Symbol Symbol))
-(define env : FuncTable (make-hash))
-
-(define need-init : (Listof TopDefinition) '())
+(define header `((\; "This gives us 256 pages of memory where each page is 64KiB" \;)
+                 (memory $mem 256)
+                 (export \"memory\" (memory $mem))
+                 (global $__mem_head (mut i32) (i32.const 1))))
 
 (define (build-wat [mod : Module]) : Sexp
+  (hash-clear! func-table)
   `(module
-       ,@(map (lambda ([g : Id]) (declare-globals mod g)) (Module-globals mod))
-     ,@(filter-map (lambda ([c : Closure]) (process-topdef mod c)) (Module-funcs mod))
-     (start $init)))
+       ,@header
+     (\; ------------------------------ \;)
+     (\; ------------------------------ \;)
+     (\; ------------start------------- \;)
+     (\; ------------------------------ \;)
+     (\; ------------------------------ \;)
+     ,@(build-functable mod)
+     ,@(build-functypes mod)
+     ,@(build-globals mod)
+     ,@(build-funcs mod)
+     (start $init)
+     (\; ------------------------------ \;)
+     (\; ------------------------------ \;)
+     (\; -------------end-------------- \;)
+     (\; ------------------------------ \;)
+     (\; ------------------------------ \;)
+     ,@wat-stdlib))
 
-(define (declare-globals [mod : Module] [global : Id]) : Sexp
-  `(global ,(wat-name global)
-           ,@(if (findf (lambda ([p : Provide]) (and (SimpleProvide? p) (equal? (SimpleProvide-id p) (Id-sym global)))) (Module-exports mod)) (list `(export ,(~a '\" (Id-sym global) '\"))) '())
-           (mut f64)
-           (f64.const 0)))
+(define (build-functable [mod : Module]) : (Listof Sexp)
+  (let ((funcs (filter (lambda ([c : Closure]) (not (equal? (Closure-name c) 'init))) (Module-funcs mod))))
+    `((table ,(length funcs) funcref)
+      (elem (i32.const 0)
+            ,@(map (lambda ([clo : Closure] [idx : Real])
+                     (hash-set! func-table (Closure-name clo) (real->int idx))
+                     (wat-name (Closure-name clo)))
+                   funcs
+                   (range (length funcs)))))))
+
+(define (build-functypes [mod : Module]) : (Listof Sexp)
+  (let ((funcs (filter (lambda ([c : Closure]) (not (equal? (Closure-name c) 'init))) (Module-funcs mod))))
+    (map (lambda ([clo : Closure])
+           `(type ,(functype-name (Closure-name clo))
+                  (func ,@(map (lambda ([p : Symbol]) '(param i32))
+                               (map Id-sym (append (Closure-params clo) (Closure-env-params clo))))
+                        (result i32))))
+         funcs)))
+
+; Every global is a pointer
+(define (build-globals [mod : Module]) : (Listof Sexp)
+  (map (lambda ([global : Symbol])
+         `(global ,(wat-name global)
+                  ,@(export? global (Module-exports mod))
+                  (mut i32)
+                  (i32.const 0)))
+       (map Id-sym (Module-globals mod))))
+
+(define (build-funcs [mod : Module]) : (Listof Sexp)
+  (filter-map (lambda ([c : Closure]) (process-topdef mod c)) (Module-funcs mod)))
 
 (define (process-topdef [mod : Module] [clo : Closure]) : Sexp
   (let ((globals (Module-globals mod))
         (exports (Module-exports mod))
         (funcs (Module-funcs mod)))
+    ; At this point the only top level/non-global variable definitions we have are the functions themselves
     (match clo
-      [(Closure (Id fn) params env-params locals body)
+      [(Closure fn params env-params locals body rt)
        `(func ,(wat-name fn)
-              ; TODO: Actually handle exports, but low priority
-              ,@(if (findf (lambda ([p : Provide]) (and (SimpleProvide? p) (equal? (SimpleProvide-id p) fn))) exports) (list `(export ,(~a '\" fn '\"))) '())
-              ,@(map (lambda ([p : (U Id Symbol)]) `(param ,(wat-name p) f64)) (append params env-params))
-              ,@(if (equal? fn 'init) '() '((result f64)))
-              ,@(map (lambda ([l : (U Id Symbol)]) `(local ,(wat-name l) f64)) locals)
-              ,@(append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) body))]
+              ,@(export? fn exports)
+              ,@(wat-params (map Id-sym (append params env-params)))
+              ,@(if (equal? rt 'void) '() (list `(result ,rt)))
+              ,@(wat-locals (map Id-sym locals))
+              (local $__env_helper i32)
+              ,@(process-func-body globals env-params (append params locals) funcs body))]
       [other (error 'unsupported (~a clo))])))
 
-(define (process-expr [globals : (Listof Id)] [locals : (Listof Id)] [funcs : (Listof Closure)] [expr : Expr]) : (Listof Sexp)
+(define (process-func-body [globals : (Listof Id)]
+                           [env-params : (Listof Id)]
+                           [locals : (Listof Id)]
+                           [funcs : (Listof Closure)]
+                           [body : (Listof Expr)]) : (Listof Sexp)
+  (append-map (lambda ([e : Expr]) (process-expr globals env-params locals funcs (make-hash) e)) body))
+
+(define (process-expr [globals : (Listof Id)]
+                      [env-params : (Listof Id)]
+                      [locals : (Listof Id)]
+                      [funcs : (Listof Closure)]
+                      [env : Env]
+                      [expr : Expr]) : (Listof Sexp)
+  (define global? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) globals)))
+  (define local? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) (append env-params locals))))
+  (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params locals funcs env e))))
   (match expr
-    [(App (Id fn) args)
-     (let ((func (findf (lambda ([c : Closure]) (equal? fn (Id-sym (Closure-name c)))) funcs)))
-       (list (if (hash-has-key? prims fn)
-                 `(,(hash-ref prims fn) ,@(append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) args))
-                 `(call ,(wat-name (if (hash-has-key? env fn) (hash-ref env fn) fn))
-                        ,@(append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) args)
-                        ; We know args will handle whatever arguments to pass, so any leftover params are env vars to pass in
-                        ,@(if func
-                              (append-map (lambda ([i : Id]) (process-expr globals locals funcs i)) (Closure-env-params func))
-                              '())))))]
+    [(App fn args)
+     ; The function name may be remapped so let's make sure we get the correct one
+     (let ((func (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) fn)) funcs)))
+       (if (hash-has-key? prims fn)
+           ; If we have a primitive we can call it directly
+           (call-primitive fn (append-map (pe-helper env) args))
+           (let ((p-fn (hash-ref env fn (lambda () ((pe-helper env) fn)))))
+             (if func
+                 ; If we have a static function we can just directly call it
+                 `((call ,(wat-name fn) ,@(append-map (pe-helper env) (append args (map Id-sym (Closure-env-params func))))))
+                 ; Otherwise we need to call the function indirectly
+                 (let ((indirect-func (findf (lambda ([id : Id]) (equal? (Id-sym id) fn)) (append globals env-params locals))))
+                   (when (not indirect-func) (error 'application "Can't find function: ~a" fn))
+                   `((\; Set up parameters for indirect call \;)
+                     ,@(append-map (pe-helper env) args)
+                     (\; Retrieve the env param values from memory. just go through and get every env value \;)
+                     ,@(get-clo-env-params p-fn)
+                     (call_indirect (type ,(functype-name (Id-type indirect-func)))
+                                    ,(if (hash-has-key? func-table fn)
+                                         `(i32.const ,(hash-ref func-table fn))
+                                         `(i32.load (i32.add (i32.const 1) ,@p-fn))))))))))]
     [(If test t f)
-     (list `(if (result f64) ,@(process-expr globals locals funcs test)
-                (then ,@(process-expr globals locals funcs t))
-                (else ,@(process-expr globals locals funcs f))))]
+     (list `(if #|(result f64)|# ,@((pe-helper env) test)
+                (then ,@((pe-helper env) t))
+                (else ,@((pe-helper env) f))))]
     ; TODO: Actually handle ids and vals
     [(LetVals ids vals exprs)
      (append
       (filter-map
        ; TODO: HAck around not actually supporting multiple return vals
-       (lambda ([l-id : (Listof Id)] [val : Expr])
+       (lambda ([l-id : (Listof Symbol)] [val : Expr])
          (cond
-           ; We know we have a funtion to call
-           [(Id? val) (hash-set! env (Id-sym (first l-id)) (Id-sym val)) #f]
-           [else `(local.set ,(wat-name (first l-id)) ,@(process-expr globals locals funcs val))]))
+           ; We know we have a function to call
+           [(symbol? val) (hash-set! env (first l-id) val) #f]
+           [else `(local.set ,(wat-name (first l-id)) ,@((pe-helper env) val))]))
        ids
        vals)
-      (append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) exprs))]
+      (append-map (pe-helper env) exprs))]
     [(Begin exprs)
-     (append-map (lambda ([e : Expr]) (process-expr globals locals funcs e)) exprs)]
-    [(Set (Id id) expr) (if (findf (lambda ([i : Id]) (equal? (Id-sym i) id)) globals)
-                            (list `(global.set ,(wat-name id) ,@(process-expr globals locals funcs expr)))
-                            (list `(local.set ,(wat-name id) ,@(process-expr globals locals funcs expr))))]
-    ; TODO: Differentiate between local & global vars
-    [(Id id) (if (findf (lambda ([i : Id]) (equal? (Id-sym i) id)) globals)
-                 (list `(global.get ,(wat-name id)))
-                 (list `(local.get ,(wat-name id))))]
-    [(Float n) (list `(f64.const ,n))]
-    [(Int n) (list `(f64.const ,n))]
+     (append-map (pe-helper env) exprs)]
+    [(Set id expr) (let ((p-expr ((pe-helper env) expr)))
+                     (if (findf (lambda ([i : Symbol]) (equal? i id)) (map Id-sym globals))
+                         (list `(global.set ,(wat-name id) ,@p-expr))
+                         (list `(local.set ,(wat-name id) ,@p-expr))))]
+    ; If we get here, we want to retrieve the value of the specified id
+    [(? symbol? id) (let ((p-id id #;(if (findf (lambda ([e-id : Symbol]) (equal? id e-id)) env-params) 'ENV_VAL id)))
+                      (let ((func (findf (lambda ([f : Closure]) (equal? p-id (Closure-name f))) funcs)))
+                        (cond
+                          [(global? p-id) (list `(global.get ,(wat-name p-id)))]
+                          [(local? p-id) (list `(local.get ,(wat-name p-id)))]
+                          ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
+                          [func (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
+                                  (list `(call $__allocate_func (i32.const ,(hash-ref func-table p-id)) ,(build-env env-exprs))))]
+                          [else (error 'unknown "ERROR: Uknown Id ~v" p-id)])))]
+    [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
+    [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))
 
-(define (wat-name [id : (U Id Symbol)]) : Symbol
-  (string->symbol
-   (~a "$" 
-       (match id
-         [(Id s) s]
-         [(? symbol? id) id]
-         [other (error 'unsupported (~a id))]))))
+(define (get-clo-env-params [src : Sexp]) : (Listof Sexp)
+  ; The start of the function's env
+  `((local.set $__env_helper (i32.load (i32.add (i32.const 5) ,@src)))
+    ,(let ((bl (block-name "break"))
+           (ll (block-name "build_env")))
+       `(block ,bl
+               (loop ,ll
+                     (i32.load (local.get $__env_helper))
+                     (i32.load (i32.add (i32.const 4) (local.get $__env_helper)))
+                     i32.eqz
+                     (br_if ,bl)
+                     (local.set $__env_helper (i32.load (i32.add (i32.const 4) (local.get $__env_helper))))
+                     (br ,ll))))))
+
+(define (build-env [exprs : (Listof Sexp)]) : Sexp
+  (foldl
+   (lambda ([e : Sexp] [curr : Sexp]) `(call $__allocate_pair ,e ,curr))
+   '(i32.const 0)
+   exprs))
+
+(define (call-primitive [fn : Symbol] [p-args : (Listof Sexp)]) : (Listof Sexp)
+  (list `(call ,(wat-name (hash-ref prims fn)) ,@p-args)))
+
+; TODO: Actually handle exports, but low priority
+(define (export? [fn : Symbol] [exports : (Listof Provide)]) : (Listof Sexp)
+  (if (findf (lambda ([p : Provide]) (and (SimpleProvide? p) (equal? (SimpleProvide-id p) fn)))
+             exports)
+      (list `(export ,(~a '\" fn '\")))
+      '()))
+
+(define (wat-params [params : (Listof Symbol)]) : (Listof Sexp)
+  (map (lambda ([p : Symbol]) `(param ,(wat-name p) i32)) params))
+
+(define (wat-locals [locals : (Listof Symbol)]) : (Listof Sexp)
+  ; TODO: I wonder if we actually need locals to be pointers too??
+  (map (lambda ([l : Symbol]) `(local ,(wat-name l) i32)) locals))
+
+(define (wat-results [fn : Symbol] [ret-types : (Listof Symbol)]) : (Listof Sexp)
+  (if (equal? fn 'init) '() `((result ,@ret-types))))
+
+(define (functype-name [s : Symbol]) : Symbol
+  (wat-name (string->symbol (~a "ftype_" s))))
+
+(define (wat-name [id : Symbol]) : Symbol
+  (string->symbol (~a "$" id)))
+
+(define (block-name [label : String]) : Symbol
+  (wat-name (string->symbol (~a label (gi-bc)))))
+
+
+(define block-counter 0)
+(define (gi-bc) : Integer
+  (let ((bc block-counter))
+    (set! block-counter (add1 bc))
+    bc))
 
 

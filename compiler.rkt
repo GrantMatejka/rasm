@@ -1,10 +1,9 @@
 #lang racket
 
-(require "expand.rkt")
-(require "passes.rkt")
-(require "wat.rkt")
 (require racket/pretty
-         json)
+         "expand.rkt"
+         "passes.rkt"
+         "wat.rkt")
 
 ;; TODO: Things of interest
 ; - handling lambdas, basically make every lambda a top level func??? and use table to refer to them all
@@ -38,10 +37,11 @@
 
 ; Datatypes of interest: string, pair, list
 
-; HELP:
-; How do we get a fully complete racket program?? Can we pull in all requirements for a fully fully expanded???
+(pretty-print-columns 100)
+
 (define in #f)
 (define out #f)
+(define dev #f)
 
 (command-line
  #:once-any
@@ -49,6 +49,8 @@
                (set! out (open-output-file file #:exists 'replace))]
  [("--stdout") "write output to standard out"
                (set! out (current-output-port))]
+ [("--dev") "write intermediate forms to dev files. Expects \"dev/expanded\" and \"dev/ast\" to exist"
+            (set! dev #t)]
  #:args ([source #f])
  (cond [(and in source)
         (raise-user-error "can't supply --stdin with a source file")]
@@ -73,24 +75,31 @@
 (define basename (first (string-split (last (string-split in "/")) ".")))
 
 (define EXPANDED (expand-file in))
-(display-to-file EXPANDED
-                 (string-append "dev/expanded/" basename "_exp.rkt")
-                 #:exists 'replace)
+(when dev (display-to-file EXPANDED
+                           (string-append "dev/expanded/" basename "_exp.rkt")
+                           #:exists 'replace))
 
 (define AST (build-ast EXPANDED))
-(display-to-file AST
-                 (string-append "dev/ast/" basename "_ast.rkt")
-                 #:exists 'replace)
+(when dev (pretty-display AST (open-output-file
+                               (string-append "dev/ast/" basename "_ast.rkt")
+                               #:exists 'replace)))
 
 (define PASSED-AST (full-pass AST))
-(display-to-file PASSED-AST
-                 (string-append "dev/ast/" basename "_passed_ast.rkt")
-                 #:exists 'replace)
+(when dev (pretty-display PASSED-AST (open-output-file
+                               (string-append "dev/ast/" basename "_passed_ast.rkt")
+                               #:exists 'replace)))
 
 (define WAT (build-wat PASSED-AST))
-(display-to-file WAT
-                 (string-append "out/" basename ".wat")
-                 #:exists 'replace)
+(when (not (directory-exists? "out")) (make-directory "out"))
+(copy-file (string->path "rasm.js")
+           (string->path "out/rasm.js")
+           #t)
+(define final (open-output-file (string-append "out/" basename ".wat")
+                                #:exists 'replace))
+(pretty-display WAT final)
+#;(define wat-cmd (~a "wat2wasm out/" basename ".wat -o out/a.wasm"))
+#;(display (~a "Converting Wat to Wasm: \"" wat-cmd "\"\n"))
+#;(system wat-cmd)
 
 (newline out)
 (flush-output out)

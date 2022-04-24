@@ -2,13 +2,11 @@ ROOT_DIR=$(pwd)
 
 raco make compiler.rkt
 
-for FILE in test_programs/*.rkt; do 
+for FILE in examples/*.rkt; do 
   echo ""
   echo "******* Compiling: $FILE ******"
-  racket compiler.rkt $FILE
+  racket compiler.rkt --dev $FILE
 done
-
-cp $ROOT_DIR/root_index.js $ROOT_DIR/out/index.js
 
 cd $ROOT_DIR/out/
 

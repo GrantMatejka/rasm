@@ -1,29 +1,41 @@
-# Notes
+## MISC
 
-I *believe* all indices in wasm are `u32` [SOURCE](https://webassembly.github.io/spec/core/syntax/modules.html#syntax-tableidx).
+Every function will take in pointers to their parameters and returns an i32 which serves as an pointer to the returned object in memory.
+
+All indices in wasm are `u32` [SOURCE](https://webassembly.github.io/spec/core/syntax/modules.html#syntax-tableidx).
+
+## Memory
+
+In WebAssembly memory is simply an array of bytes.
+
+We claim 256 pages where each page is 64KiB.
+
+We allocate the memory on the WebAssembly side and export it, rather than relying on the JS host to allocate and import it to us.
+- The memory is still mutable from both sides.
 
 ## Objects
 
 We need an object for every complicated type in wasm. 
-(I think we will temporarily even represent numbers as objects and hopefully optimize this out)
 
 Every object will be identified by a pointer.
 
 Type Id is the first `i8` of the pointer.
 The next bytes after will be determined based on what type it is.
 
+A list is a sequence of pairs, with 0 as the terminating pointer.
+
+Chars are simply i64's. And strings are lists of chars.
+
 ### Type Id's and Memory Data Layout
 
 ---
 
-| Type Id | Name | Data Description |
-| ---- | ---- | ---- |
-| 0 | Integer | Read next 8 bytes as the value |
-| 1 | Float | Read the next 8 bytes as the value |
-| 2 | Function | Read the next i32 as the index to the function table and the i32 after as a pointer to the environment of the function |
-| 3 | Pair | The first i32 is the pointer to the first value while the second i32 is the pointer to the second value |
-| 4 | Char | Read next 8 bytes representing the Unicode character |
-| 5 | String | The first i32 is a pointer to the chain of pairs of the chars and the second i32 is the length of the string |
+| Type Id |   Name   | Data Description |
+| ------  |   ----   | ---- |
+|   0     | Integer  | Read next 8 bytes as the value |
+|   1     | Float    | Read the next 8 bytes as the value |
+|   2     | Pair     | The first i32 is the pointer to the first value while the second i32 is the pointer to the second value |
+|   3     | Function | Read the next i32 as the index to the function table and the i32 after as a pointer to the environment of the function |
 
 ---
 
@@ -40,10 +52,10 @@ For any 'closure/func' we have an entry in the Table
 Therefore we have a table of indexes to function labels.
 
 | idx | func |
-| -- | -- |
-| 0 | $f |
-| 1 | $g |
-| 2 | $h |
+| --  | --   |
+| 0   | $f   |
+| 1   | $g   |
+| 2   | $h   |
 
 So for our 'Closure' type we can use an i32 to represent the index to the table and an i32 to point to the env.
 
