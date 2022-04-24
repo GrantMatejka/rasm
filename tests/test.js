@@ -1,7 +1,6 @@
 const fs = require("fs");
 const exec = require("child_process").exec;
 const assert = require("assert");
-const wasm_helper = require("./rasm");
 
 assert.equal(process.argv.length, 3, "Expected use: node test.js <filename>");
 
@@ -40,6 +39,7 @@ const testFiles = (files, expected) => {
     const generate_wasm = `wat2wasm ${out_path} -o out/a.wasm`;
 
     my_exec(`${copy_rasm} && ${compile_file} && ${generate_wasm}`, () => {
+      const wasm_helper = require("./rasm");
       const expected_exports = expected[basename]["exports"];
       const bytes = fs.readFileSync("out/a.wasm");
 
