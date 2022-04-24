@@ -15,8 +15,11 @@
                '- '__sub
                '* '__mul
                '/ '__div
-               '< 'f64.lt
-               'equal? 'f64.eq))
+               '< '__lt
+               '> '__gt
+               '<= '__le
+               '>= '__ge
+               'equal? '__eq))
 
 (define (simple-arith [name : Symbol] [i64op : Symbol] [f64op : Symbol]) : Sexp
   `(func ,name (param $v1 i32) (param $v2 i32) (result i32)
@@ -41,6 +44,30 @@
                              (call $__allocate_float
                                    (,f64op (f64.load (i32.add (i32.const 1) (local.get $v1)))
                                            (f64.load (i32.add (i32.const 1) (local.get $v2)))))))))))
+
+(define (simple-comp [name : Symbol] [i64op : Symbol] [f64op : Symbol]) : Sexp
+  `(func ,name (param $v1 i32) (param $v2 i32) (result i32)
+         (if (result i32) (i32.eqz (i32.load8_u (local.get $v1)))
+             (then (\; v1 === int \;)
+                   (if (result i32) (i32.eqz (i32.load8_u (local.get $v2)))
+                       (then (\; v2 === int \;)
+                             (call $__allocate_int
+                                   (i64.extend_i32_u (,i64op (i64.load (i32.add (i32.const 1) (local.get $v1)))
+                                                         (i64.load (i32.add (i32.const 1) (local.get $v2)))))))
+                       (else (\; v2 === float \;)
+                             (call $__allocate_int
+                                   (i64.extend_i32_u (,f64op (f64.convert_i64_s (i64.load (i32.add (i32.const 1) (local.get $v1))))
+                                                         (f64.load (i32.add (i32.const 1) (local.get $v2)))))))))
+             (else (\; v1 === float \;)
+                   (if (result i32) (i32.eqz (i32.load8_u (local.get $v2)))
+                       (then (\; v2 === int \;)
+                             (call $__allocate_int
+                                   (i64.extend_i32_u (,f64op (f64.load (i32.add (i32.const 1) (local.get $v1)))
+                                                         (f64.convert_i64_s (i64.load (i32.add (i32.const 1) (local.get $v2))))))))
+                       (else (\; v2 === float \;)
+                             (call $__allocate_int
+                                   (i64.extend_i32_u (,f64op (f64.load (i32.add (i32.const 1) (local.get $v1)))
+                                                         (f64.load (i32.add (i32.const 1) (local.get $v2))))))))))))
 
 (define wat-stdlib `((\; "Takes in number of bytes to allocate and returns the ptr to the start of the object" \;)
                      (\; "The number of bytes should not include the type id for the object" \;)
@@ -77,7 +104,12 @@
                      ,(simple-arith '$__add 'i64.add 'f64.add)
                      ,(simple-arith '$__sub 'i64.sub 'f64.sub)
                      ,(simple-arith '$__mul 'i64.mul 'f64.mul)
-                     ,(simple-arith '$__div 'i64.div_s 'f64.div)))
+                     ,(simple-arith '$__div 'i64.div_s 'f64.div)
+                     ,(simple-comp '$__gt 'i64.gt_s 'f64.gt)
+                     ,(simple-comp '$__lt 'i64.lt_s 'f64.lt)
+                     ,(simple-comp '$__ge 'i64.ge_s 'f64.ge)
+                     ,(simple-comp '$__le 'i64.le_s 'f64.le)
+                     ,(simple-comp '$__eq 'i64.eq 'f64.eq)))
 
 #|
 (func $__add (param $v1 i32) (param $v2 i32) (result i32)

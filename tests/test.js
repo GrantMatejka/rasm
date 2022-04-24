@@ -24,6 +24,12 @@ const my_exec = function (cmd, callback) {
   });
 };
 
+const my_assert = (want, got, msg) => {
+  const epsilon = 0.005;
+
+  assert.ok(want - epsilon < got && want + epsilon > got, msg);
+};
+
 const testFiles = (files, expected) => {
   files.forEach((basename) => {
     const rkt_path = `../examples/${basename}.rkt`;
@@ -38,9 +44,6 @@ const testFiles = (files, expected) => {
       const bytes = fs.readFileSync("out/a.wasm");
 
       wasm_helper.instantiate(bytes).then((obj) => {
-        console.log(JSON.stringify(wasm_helper.instantiate));
-        console.log(JSON.stringify(obj.funcs));
-
         for (const funcname in obj.funcs) {
           const expectations = expected_exports[funcname];
           const wasm_export = obj.funcs[funcname];
@@ -49,7 +52,7 @@ const testFiles = (files, expected) => {
             : wasm_export();
 
           const expected_val = expectations["val"];
-          assert.equal(
+          my_assert(
             expected_val,
             result,
             `FAIL: ${funcname} -> expected ${expected_val} got ${result}`
@@ -60,7 +63,7 @@ const testFiles = (files, expected) => {
           const expectations = expected_exports[valname];
           const expected_val = expectations["val"];
           const wasm_export = obj.vals[valname];
-          assert.equal(
+          my_assert(
             expected_val,
             wasm_export,
             `FAIL: ${valname} -> expected ${expected_val} got ${wasm_export}`
