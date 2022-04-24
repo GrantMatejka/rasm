@@ -6,13 +6,13 @@ const bytes = fs.readFileSync("./a.wasm");
 const rasm = require("./rasm");
 
 
-rasm.instantiate(bytes).then((obj) => {
-  // HERE: You can process the webassembly module however you want
-  // obj is an instantiated webassembly module
-  // - obj.funcs contains wrapped webassembly functions
-  // -- You should only call functions from this wrapped form
-  // - obj.vals contains any exported global variables/constants
-});
+// rasm.instantiate(bytes).then((obj) => {
+//    HERE: You can process the webassembly module however you want
+//    obj is an instantiated webassembly module
+//    - obj.funcs contains wrapped webassembly functions
+//    -- You should only call functions from this wrapped form
+//    - obj.vals contains any exported global variables/constants
+// });
 
 rasm.instantiate(bytes).then((obj) => {
   for (const funcname in obj.funcs) {
@@ -27,10 +27,8 @@ rasm.instantiate(bytes).then((obj) => {
     console.log(
       `-----------------\n${funcname} called with [ ${params} ] returned: ${return_val}`
     );
-    console.log(
-      new Uint8Array(obj.instance.exports.memory.buffer).slice(0, 50)
-    );
   }
+
   for (const valname in obj.vals) {
     const val = obj.funcs[valname];
 

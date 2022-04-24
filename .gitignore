@@ -2,8 +2,7 @@
 *.rkt~
 
 dev/
-out/*.wat
-out/*.wasm
+out/
 
 .vscode
 compiled/

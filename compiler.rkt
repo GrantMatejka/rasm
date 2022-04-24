@@ -64,6 +64,10 @@
 (define input (open-input-file in))
 (define in-path (normalize-path in))
 
+(when dev (when (not (directory-exists? "dev")) (make-directory "dev")))
+(when dev (when (not (directory-exists? "dev/expanded")) (make-directory "dev/expanded")))
+(when dev (when (not (directory-exists? "dev/ast")) (make-directory "dev/ast")))
+
 ; TODO: delete this next line when we allow custom out files
 (set! out (current-output-port))
 (unless (output-port? out)
@@ -91,8 +95,11 @@
 
 (define WAT (build-wat PASSED-AST))
 (when (not (directory-exists? "out")) (make-directory "out"))
-(copy-file (string->path "rasm.js")
-           (string->path "out/rasm.js")
+(copy-file (string->path "./rasm.js")
+           (string->path "./out/rasm.js")
+           #t)
+(copy-file (string->path "./example_index.js")
+           (string->path "./out/index.js")
            #t)
 (define final (open-output-file (string-append "out/" basename ".wat")
                                 #:exists 'replace))
