@@ -13,12 +13,10 @@ cd $ROOT_DIR/out/
 for FILE in *.wat; do 
   echo ""
   echo "******* Running: $FILE ******"
-
-  wat2wasm $FILE -o a.wasm
-  node index.js
-
-  # cleanup
-  # rm a.wasm $FILE
+  
+  node index.js $FILE
+  
+  rm a.wasm $FILE
 done
 
 cd $ROOT_DIR

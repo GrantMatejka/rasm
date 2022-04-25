@@ -100,26 +100,27 @@
   (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params locals funcs env e))))
   (match expr
     [(App fn args)
-     ; The function name may be remapped so let's make sure we get the correct one
-     (let ((func (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) fn)) funcs)))
-       (if (hash-has-key? prims fn)
+     (let ((p-fn (hash-ref env fn (lambda () fn)))) 
+       ; The function name may be remapped so let's make sure we get the correct one
+       (if (hash-has-key? prims p-fn)
            ; If we have a primitive we can call it directly
-           (call-primitive fn (append-map (pe-helper env) args))
-           (let ((p-fn (hash-ref env fn (lambda () ((pe-helper env) fn)))))
-             (if func
-                 ; If we have a static function we can just directly call it
-                 `((call ,(wat-name fn) ,@(append-map (pe-helper env) (append args (map Id-sym (Closure-env-params func))))))
-                 ; Otherwise we need to call the function indirectly
-                 (let ((indirect-func (findf (lambda ([id : Id]) (equal? (Id-sym id) fn)) (append globals env-params locals))))
-                   (when (not indirect-func) (error 'application "Can't find function: ~a" fn))
-                   `((\; Set up parameters for indirect call \;)
-                     ,@(append-map (pe-helper env) args)
-                     (\; Retrieve the env param values from memory. just go through and get every env value \;)
-                     ,@(get-clo-env-params p-fn)
-                     (call_indirect (type ,(functype-name (Id-type indirect-func)))
-                                    ,(if (hash-has-key? func-table fn)
-                                         `(i32.const ,(hash-ref func-table fn))
-                                         `(i32.load (i32.add (i32.const 1) ,@p-fn))))))))))]
+           (call-primitive p-fn (append-map (pe-helper env) args))
+           ; Otherwise we need to call the function indirectly
+           (letrec ((funcname (let ((var? (findf (lambda ([id : Id]) (equal? (Id-sym id) p-fn)) (append globals env-params locals)))
+                                 (static? (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) p-fn)) funcs)))
+                             (if var? (Id-type var?)
+                                 (if static? (Closure-name static?) (error 'application "Unknown Function: ~a" fn)))))
+                 (pp-fn ((pe-helper env) p-fn))
+                 (func  (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) funcname)) funcs)))
+             (when (not func) (error 'application "Unknown Function: ~a" funcname))
+             `((\; Set up parameters for indirect call \;)
+               ,@(append-map (pe-helper env) args)
+               (\; Retrieve the env param values from memory. just go through and get every env value \;)
+               ,@(get-clo-env-params pp-fn (length (Closure-env-params func)))
+               (call_indirect (type ,(functype-name funcname))
+                              ,(if (hash-has-key? func-table fn)
+                                   `(i32.const ,(hash-ref func-table fn))
+                                   `(i32.load (i32.add (i32.const 1) ,@pp-fn))))))))]
     [(If test t f)
      (list `(if #|(result f64)|# ,@((pe-helper env) test)
                 (then ,@((pe-helper env) t))
@@ -147,8 +148,8 @@
     [(? symbol? id) (let ((p-id id #;(if (findf (lambda ([e-id : Symbol]) (equal? id e-id)) env-params) 'ENV_VAL id)))
                       (let ((func (findf (lambda ([f : Closure]) (equal? p-id (Closure-name f))) funcs)))
                         (cond
-                          [(global? p-id) (list `(global.get ,(wat-name p-id)))]
                           [(local? p-id) (list `(local.get ,(wat-name p-id)))]
+                          [(global? p-id) (list `(global.get ,(wat-name p-id)))]
                           ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
                           [func (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
                                   (list `(call $__allocate_func (i32.const ,(hash-ref func-table p-id)) ,(build-env env-exprs))))]
@@ -157,19 +158,18 @@
     [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))
 
-(define (get-clo-env-params [src : Sexp]) : (Listof Sexp)
-  ; The start of the function's env
-  `((local.set $__env_helper (i32.load (i32.add (i32.const 5) ,@src)))
-    ,(let ((bl (block-name "break"))
-           (ll (block-name "build_env")))
-       `(block ,bl
-               (loop ,ll
-                     (i32.load (local.get $__env_helper))
-                     (i32.load (i32.add (i32.const 4) (local.get $__env_helper)))
-                     i32.eqz
-                     (br_if ,bl)
-                     (local.set $__env_helper (i32.load (i32.add (i32.const 4) (local.get $__env_helper))))
-                     (br ,ll))))))
+(define (get-clo-env-params [src : Sexp] [size-env : Integer]) : (Listof Sexp)
+  (map
+   (lambda ([r : Real])
+     (let ((nestedness (real->int r)))
+       (gcep-helper src nestedness)))
+   (range size-env)))
+
+(define (gcep-helper [src : Sexp] [size : Integer]) : Sexp
+  (if (equal? 0 size)
+      ; Get the value of the final element in the env
+      `(i32.load (i32.add (i32.const 1) (i32.load (i32.add (i32.const 5) ,@src))))
+      `(i32.load (i32.add (i32.const 5) ,(gcep-helper src (sub1 size))))))
 
 (define (build-env [exprs : (Listof Sexp)]) : Sexp
   (foldl

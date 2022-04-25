@@ -7,6 +7,8 @@ const getResult = (ptr, mem) => {
     case 1: // float
       val = Buffer.from(mem.slice(ptr + 1, ptr + 9)).readDoubleLE();
       return val.toString();
+    case 3:
+      return "[function]";
     default:
       return -1;
   }
@@ -51,7 +53,10 @@ const instantiate = (bytes) => {
           obj.funcs[wasm_export_name] = wrapped;
         } else {
           if (wasm_export.value) {
-            obj.vals[wasm_export_name] = wasm_export.value;
+            obj.vals[wasm_export_name] = getResult(
+              wasm_export.value,
+              new Uint8Array(obj.instance.exports.memory.buffer)
+            );
           }
         }
       }

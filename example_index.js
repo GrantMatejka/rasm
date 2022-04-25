@@ -48,7 +48,7 @@ const process_wasm = (bytes) =>
      * `obj.vals` contains any exported global variables/constants
      */
     for (const value_name in obj.vals) {
-      const value = obj.funcs[value_name];
+      const value = obj.vals[value_name];
       console.log(
         `-----------------\nExported ${value_name} with Value ${value}`
       );
