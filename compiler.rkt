@@ -22,21 +22,6 @@
 ;  Make every lambda top level? Where we pass in all vars we're interested in from env?
 ;  Mmultiple return values?
 
-
-; TODO: Get list libraries compiling
-; What primitive functions do we really need to implement???
-#;(let ([ns (make-base-empty-namespace)])
-    (parameterize ([current-namespace ns])
-      (namespace-require ''#%kernel)
-      (namespace-require ''#%unsafe)
-      (namespace-require ''#%flfxnum)
-      (namespace-require ''#%extfl)
-      (namespace-require ''#%futures)
-      (namespace-require ''#%foreign)
-      (namespace-mapped-symbols)))
-
-; Datatypes of interest: string, pair, list
-
 (pretty-print-columns 100)
 
 (define in #f)

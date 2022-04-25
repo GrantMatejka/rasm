@@ -1,37 +1,71 @@
-// How to work with a compiled rasm module
-
-const fs = require("fs");
-// We expect an `a.wasm` file
-const bytes = fs.readFileSync("./a.wasm");
+// JUST an example of how to work with a compiled rasm module
+const exec = require("child_process").exec;
 const rasm = require("./rasm");
 
+// A simple wrapper of exec to keep track of some IO
+const my_exec = function (cmd, callback) {
+  exec(cmd, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`error: ${error.message}`);
+      return;
+    }
+    if (stderr) {
+      console.error(`stderr: ${stderr}`);
+      return;
+    }
+    if (stdout.trim()) {
+      console.log(`stdout: ${stdout}`);
+    }
+    callback();
+  });
+};
 
-// rasm.instantiate(bytes).then((obj) => {
-//    HERE: You can process the webassembly module however you want
-//    obj is an instantiated webassembly module
-//    - obj.funcs contains wrapped webassembly functions
-//    -- You should only call functions from this wrapped form
-//    - obj.vals contains any exported global variables/constants
-// });
+const process_wasm = (bytes) =>
+  // obj is an instatiated WebAssembly module
+  // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WebAssembly/Module
+  rasm.instantiate(bytes).then((obj) => {
+    /**
+     * Every function in `obj.funcs` is a special wrapper of the webassembly function
+     * The wasm function itself is still accessible in `obj.instance.exports`
+     *
+     * When working with rasm, you should only call functions from this wrapped form
+     */
+    for (const funcname in obj.funcs) {
+      const func = obj.funcs[funcname];
 
-rasm.instantiate(bytes).then((obj) => {
-  for (const funcname in obj.funcs) {
-    const func = obj.funcs[funcname];
+      const params = Array(func.numargs)
+        .fill(0)
+        .map((_, __) => Math.floor(Math.random() * 10));
 
-    const params = Array(func.numargs)
-      .fill(0)
-      .map((_, __) => Math.floor(Math.random() * 10));
+      console.log(
+        `-----------------\n${funcname} called with [ ${params} ] returned: ${func(
+          ...params
+        )}`
+      );
+    }
 
-    const return_val = func(...params);
+    /**
+     * `obj.vals` contains any exported global variables/constants
+     */
+    for (const value_name in obj.vals) {
+      const value = obj.funcs[value_name];
+      console.log(
+        `-----------------\nExported ${value_name} with Value ${value}`
+      );
+    }
+  });
 
-    console.log(
-      `-----------------\n${funcname} called with [ ${params} ] returned: ${return_val}`
-    );
-  }
+if (process.argv.length !== 3) {
+  console.error("Expected use: node index.js <filename>");
+}
 
-  for (const valname in obj.vals) {
-    const val = obj.funcs[valname];
+const filename = process.argv[2].endsWith(".wat")
+  ? process.argv[2]
+  : process.argv[2].concat(".wat");
 
-    console.log(`-----------------\nExported ${valname} with Value ${val}`);
-  }
+my_exec(`wat2wasm ${filename} -o a.wasm`, () => {
+  const fs = require("fs");
+  const bytes = fs.readFileSync("./a.wasm");
+
+  process_wasm(bytes);
 });

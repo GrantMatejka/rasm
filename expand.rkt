@@ -49,7 +49,6 @@
      (if (equal? (syntax-e #'id) 'configure-runtime)
          #f
          (filter-map process-mod (stx->list #'(module-level-form ...))))]
-    ; WILLDO?
     [(begin-for-syntax module-level-form ...) (error 'unsupported)]
     [(#%declare declaration-keyword ...) #f]
     [(module* id module-path (#%plain-module-begin module-level-form ...)) #f]
@@ -67,7 +66,6 @@
        (if (Func? p-expr)
            (Func (first p-ids) (Func-params p-expr) (Func-body p-expr))
            (Var (first p-ids) p-expr)))]
-    ; WILLDO? TODO: Ask clements about these
     [(define-syntaxes (id ...) expr) (error 'unsupported)]
     [(#%require raw-require-spec ...) (error 'unsupported)]
     [other (process-expr gtop-form)]))
