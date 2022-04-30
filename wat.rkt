@@ -109,11 +109,10 @@
   (define env? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) env-params)))
   (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params locals funcs env e))))
   (match expr
-    [(App fn args)
+    [(Call fn args) (list `(call ,(wat-name (hash-ref prims fn))
+                                 ,@(append-map (pe-helper env) args)))]
+    [(IndirectCall fn args)
      (let ((p-fn (hash-ref env fn (lambda () fn))))
-       (if (hash-has-key? prims p-fn)
-           ; If we have a primitive we can call it directly
-           (call-primitive p-fn (append-map (pe-helper env) args))
            ; Otherwise we need to call the function indirectly
            (letrec ((funcname (let ((var? (findf (lambda ([id : Id]) (equal? (Id-sym id) p-fn)) (append globals env-params locals)))
                                  (static? (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) p-fn)) funcs)))
@@ -135,7 +134,7 @@
                (call_indirect (type $__function_type)
                               ,(if (hash-has-key? func-table fn)
                                    `(i32.const ,(hash-ref func-table fn))
-                                   `(i32.load (i32.add (i32.const 1) ,@pp-fn))))))))]
+                                   `(i32.load (i32.add (i32.const 1) ,@pp-fn)))))))]
     [(If test t f)
      (list `(if (result i32) (i64.eqz (i64.load (i32.add (i32.const 1) ,@((pe-helper env) test))))
                 ; Since we are checking the conditional for eqz we need to reverse the conditions
@@ -187,10 +186,6 @@
    (lambda ([e : Sexp] [curr : Sexp]) `(call $__allocate_pair ,e ,curr))
    '(i32.const 0)
    exprs))
-
-; TODO: I think we should have a primitive application form different from an indirect call form
-(define (call-primitive [fn : Symbol] [p-args : (Listof Sexp)]) : (Listof Sexp)
-  (list `(call ,(wat-name (hash-ref prims fn)) ,@p-args)))
 
 ; TODO: Actually handle exports, but low priority
 (define (export? [fn : Symbol] [exports : (Listof Provide)]) : (Listof Sexp)

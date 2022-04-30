@@ -5,9 +5,6 @@
 
 (provide full-pass)
 
-; Represents a temporary stage of fully expanded programs where we introduce expressions used to initialize global values
-(struct FEP2 FEP ([init : (Listof L0-Expr)]) #:transparent)
-
 (define (full-pass [ast : FEP]) : Module
   (typecheck ast)
   (discover-types (lift-closures (generate-init (lift-lambdas (uniquify ast))))))
@@ -188,10 +185,11 @@
                                                (map L0-expr->Expr vals)
                                                (map L0-expr->Expr body))]
     [(L0-App fn args)
-     (App (if (not (symbol? fn))
-              (error 'conversion "Expected symbol, given ~a" fn)
-              fn)
-          (map L0-expr->Expr args))]
+     (if (not (symbol? fn))
+         (error 'conversion "Expected symbol, given ~a" fn)
+         (if (hash-has-key? prims fn)
+             (Call fn (map L0-expr->Expr args))
+             (IndirectCall fn (map L0-expr->Expr args))))]
     [(L0-CaseLambda funcs) (CaseLambda funcs)]
     [(L0-If test t f) (If (L0-expr->Expr test) (L0-expr->Expr t) (L0-expr->Expr f))]
     [(L0-Begin exprs) (Begin (map L0-expr->Expr exprs))]
@@ -211,7 +209,8 @@
      (match e
        [(LetVals ids vals body) (lift-let-locals ids vals body)]
        [(LetRecVals ids vals body) (lift-let-locals ids vals body)]
-       [(App fn args) (lift-func-locals args)]
+       [(Call fn args) (lift-func-locals args)]
+       [(IndirectCall fn args) (lift-func-locals args)]
        [(If test t f) (append (lift-func-locals (list test))
                               (lift-func-locals (list t))
                               (lift-func-locals (list f)))]
@@ -242,7 +241,8 @@
                                         (lift-func-envs body (append known-ids (cast (flatten ids) (Listof Symbol)))))]
        [(LetRecVals ids vals body) (append (lift-func-envs vals (append known-ids (cast (flatten ids) (Listof Symbol))))
                                         (lift-func-envs body (append known-ids (cast (flatten ids) (Listof Symbol)))))]
-       [(App fn args) (append (lfe-helper (list fn)) (lfe-helper args))]
+       [(Call fn args) (append (lfe-helper (list fn)) (lfe-helper args))]
+       [(IndirectCall fn args) (append (lfe-helper (list fn)) (lfe-helper args))]
        [(If test t f) (append (lfe-helper (list test)) (lfe-helper (list t)) (lfe-helper (list f)))]
        [(Begin exprs) (lfe-helper exprs)]
        [(Begin0 exprs) (lfe-helper exprs)]
@@ -297,7 +297,8 @@
            (f-vals (map expr->type (cast (flatten vals) (Listof Expr)))))
        (append (map (lambda ([s : Symbol] [t : Type]) (Id s t)) f-ids f-vals)
                (append-map estimate-expr-types body)))]
-    [(App fn args) (append-map estimate-expr-types args)]
+    [(Call fn args) (append-map estimate-expr-types args)]
+    [(IndirectCall fn args) (append-map estimate-expr-types args)]
     [(If test t f) (append (estimate-expr-types test)
                            (estimate-expr-types t)
                            (estimate-expr-types f))]
@@ -311,7 +312,8 @@
   (match e
     [(LetVals ids vals body) (expr->type (last body))]
     [(LetRecVals ids vals body) (expr->type (last body))]
-    [(App fn args) 'i32]
+    [(Call fn args) 'i32]
+    [(IndirectCall fn args) 'i32]
     [(If test t f) (let ((t-type (expr->type t))
                          (f-type (expr->type f)))
                      (if (not (equal? t-type f-type))

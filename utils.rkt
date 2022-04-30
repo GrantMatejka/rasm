@@ -1,15 +1,19 @@
 #lang typed/racket
 
-(provide (all-defined-out))
+(require "types.rkt")
 
+(provide (all-defined-out))
 
 ; Whether we have an anonymous lambda or not
 (define (anon? [fn : Symbol]) : Boolean
   (string-contains? (~a fn) "__lambda"))
 
+; Rounds a real number to an int
 (define (real->int [r : Real]) : Integer
   (cast (round r) Integer))
 
+(define (Provide? [a : Any]) : Boolean
+  (or (SimpleProvide? a) (RenamedProvide? a) (AllDefined? a) (PrefixAllDefined? a)))
 
 ; Just like findf but returns user defined value if not found
 (: my-findf (All (a) (-> (-> a Boolean) (Listof a) (U a False) (U a False))))

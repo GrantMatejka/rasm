@@ -1,11 +1,11 @@
 #lang racket
 
-(require "types.rkt")
-
 (require syntax/kerncase
          syntax/stx
          racket/syntax
-         syntax/parse)
+         syntax/parse
+         "types.rkt"
+         "utils.rkt")
 
 (provide expand-file build-ast)
 
