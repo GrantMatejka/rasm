@@ -36,6 +36,7 @@
     ; We expect a module as the top level form to compile
     [(module id lang (#%plain-module-begin module-level-form ...))
      (flatten (filter-map (lambda (stx) (process-mod stx)) (stx->list #'(module-level-form ...))))]
+    ; TODO: Port these over
     [(#%expression expr) (error 'process-top-form TOP_LVL_FORM_ERROR)]
     [(begin top-level-form ...) (error 'process-top-form TOP_LVL_FORM_ERROR)]
     [(begin-for-syntax top-level-form ...) (error 'process-top-form TOP_LVL_FORM_ERROR)]
@@ -50,6 +51,7 @@
      (if (equal? (syntax-e #'id) 'configure-runtime)
          #f
          (filter-map process-mod (stx->list #'(module-level-form ...))))]
+    ; TODO: Port these over
     [(begin-for-syntax module-level-form ...) (error 'unsupported)]
     [(#%declare declaration-keyword ...) #f]
     [(module* id module-path (#%plain-module-begin module-level-form ...)) #f]
@@ -119,7 +121,7 @@
     [(#%variable-reference id) (process-formal #'id)]
     [(#%top . id) (L0-TopId (process-formal #'id))]
     [(#%variable-reference (#%top . id)) (TopId (process-formal #'id))]
-    ; TODO: WILL NOT DO??
+    ; TODO: Port these over
     [(#%variable-reference) '()]
     [(quote-syntax datum) '()]
     [(quote-syntax datum #:local) '()]
@@ -128,14 +130,14 @@
 
 (define (process-formal formal)
   (kernel-syntax-case formal #f
-    [(id ...) (map get-true-id (stx->list #'(id ...)))]
-    [id (get-true-id #'id)]
+    [(id ...) (map get-id-binding (stx->list #'(id ...)))]
+    [id (get-id-binding #'id)]
     [(id1 ... . id2) (append
-                      (map get-true-id (stx->list #'(id1 ...)))
-                      (list (get-true-id #'id2)))]
+                      (map get-id-binding (stx->list #'(id1 ...)))
+                      (list (get-id-binding #'id2)))]
     [other (error 'rasm "Unknown formal " formal)]))
 
-(define (get-true-id id)
+(define (get-id-binding id)
   (let ((bound? (identifier-binding id)))
         (match bound?
           [#f (syntax-e id)]
