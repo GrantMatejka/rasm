@@ -9,3 +9,4 @@ compiled/
 
 tests/out/
 tests/rasm.js
+tests/example_index.js

@@ -47,7 +47,6 @@
         (set! in source)]))
 
 (define input (open-input-file in))
-(define in-path (normalize-path in))
 
 (when dev (when (not (directory-exists? "dev")) (make-directory "dev")))
 (when dev (when (not (directory-exists? "dev/expanded")) (make-directory "dev/expanded")))
@@ -75,23 +74,22 @@
 
 (define PASSED-AST (full-pass AST))
 (when dev (pretty-display PASSED-AST (open-output-file
-                               (string-append "dev/ast/" basename "_passed_ast.rkt")
-                               #:exists 'replace)))
+                                      (string-append "dev/ast/" basename "_passed_ast.rkt")
+                                      #:exists 'replace)))
 
 (define WAT (build-wat PASSED-AST))
 (when (not (directory-exists? "out")) (make-directory "out"))
-(copy-file (string->path "./rasm.js")
-           (string->path "./out/rasm.js")
-           #t)
-(copy-file (string->path "./example_index.js")
-           (string->path "./out/index.js")
-           #t)
-(define final (open-output-file (string-append "out/" basename ".wat")
-                                #:exists 'replace))
-(pretty-display WAT final)
-#;(define wat-cmd (~a "wat2wasm out/" basename ".wat -o out/a.wasm"))
-#;(display (~a "Converting Wat to Wasm: \"" wat-cmd "\"\n"))
-#;(system wat-cmd)
+; Copy over the rasm js module and the example index for easy operating
+(copy-file (string->path "./rasm.js") (string->path "./out/rasm.js") #t)
+(copy-file (string->path "./example_index.js") (string->path "./out/index.js") #t)
+(pretty-display WAT (open-output-file
+                     (string-append "out/" basename ".wat")
+                     #:exists 'replace))
 
 (newline out)
 (flush-output out)
+
+
+
+
+

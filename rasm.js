@@ -14,6 +14,39 @@ const getResult = (ptr, mem) => {
   }
 };
 
+const wrapFunction = (wasm_export, wasm_export_name, obj_exports) => {
+  const wrapped = function (...params) {
+    const arg_ptrs = params.map((p) => {
+      // All numbers in javascript are 64-bit floats
+      if (typeof p === "number") {
+        return obj_exports.__allocate_float(p);
+      }
+    });
+
+    const param_list_ptr = obj_exports.__alloc(4 * arg_ptrs.length);
+
+    arg_ptrs.map((ptr, idx) => {
+      obj_exports.__store_i32(4 * idx + param_list_ptr, ptr);
+    });
+
+    return getResult(
+      wasm_export(param_list_ptr),
+      new Uint8Array(obj_exports.memory.buffer)
+    );
+  };
+
+  const param_length_name = "__" + wasm_export_name + "_length";
+  if (obj_exports[param_length_name]) {
+    wrapped.numargs = obj_exports[param_length_name].value;
+    wrapped.length = obj_exports[param_length_name].value;
+  } else {
+    wrapped.numargs = wasm_export.length;
+    wrapped.length = wasm_export.length;
+  }
+
+  return wrapped;
+};
+
 const instantiate = (bytes) => {
   const importObject = {
     env: {
@@ -27,29 +60,33 @@ const instantiate = (bytes) => {
     (obj) => {
       obj.funcs = [];
       obj.vals = [];
+      obj.internals = [];
 
       for (const wasm_export_name in obj.instance.exports) {
         const wasm_export = obj.instance.exports[wasm_export_name];
 
-        if (
-          typeof wasm_export === "function" &&
-          !wasm_export_name.startsWith("__")
-        ) {
-          const wrapped = function (...params) {
-            const arg_ptrs = params.map((p) => {
-              // All numbers in javascript are 64-bit floats
-              if (typeof p === "number") {
-                return obj.instance.exports.__allocate_float(p);
-              }
-            });
+        if (wasm_export_name.startsWith("__")) {
+          if (typeof wasm_export === "function") {
+            const wrapped = wrapFunction(
+              wasm_export,
+              wasm_export_name,
+              obj.instance.exports
+            );
 
-            return getResult(
-              wasm_export(...arg_ptrs),
+            obj.internals[wasm_export_name] = wrapped;
+          } else if (wasm_export.value) {
+            obj.internals[wasm_export_name] = getResult(
+              wasm_export.value,
               new Uint8Array(obj.instance.exports.memory.buffer)
             );
-          };
-          wrapped.numargs = wasm_export.length;
-          wrapped.length = wasm_export.length;
+          }
+        } else if (typeof wasm_export === "function") {
+          const wrapped = wrapFunction(
+            wasm_export,
+            wasm_export_name,
+            obj.instance.exports
+          );
+
           obj.funcs[wasm_export_name] = wrapped;
         } else {
           if (wasm_export.value) {

@@ -38,7 +38,6 @@
           (map (lambda ([id : Symbol]) (hash-ref starting-env id)) (Func-params func))
           (map (lambda ([expr : L0-Expr]) (uniquify-expr expr starting-env)) (Func-body func)))))
 
-
 (define (uniquify-expr [expr : L0-Expr] [env : Env]) : L0-Expr
   (define ue-helper (lambda ([e : L0-Expr]) (uniquify-expr e env)))
   (match expr
@@ -172,29 +171,13 @@
                (map sym->temp-id
                     (lift-func-envs body
                                (append
+                                (hash-keys prims)
                                 (map Func-name funcs)
                                 (Func-params f)
                                 locals
                                 globals)))
                (map sym->temp-id locals)
-               body
-               (if (equal? 'init (Func-name f)) 'void (get-ret-type body))))))
-
-(define (get-ret-type [exprs : (Listof Expr)]) : (U 'i32 'i64 'f64)
-  (match (last exprs)
-    [(LetVals ids vals body) (get-ret-type body)]
-    [(LetRecVals ids vals body) (get-ret-type body)]
-    [(App fn args) 'i32]
-    [(If test t f) (let ((true (get-ret-type (list t)))
-                         (false (get-ret-type (list f))))
-                     (when (not (equal? true false)) (error 'typecheck "IF: has different branch types"))
-                     false)]
-    [(Begin body) (get-ret-type body)]
-    [(Begin0 body) (get-ret-type body)]
-    [(Set id expr) 'i32]
-    [(? symbol? s) 'i32]
-    [(Int i) 'i64]
-    [(Float f) 'f64]))
+               body))))
 
 (define (L0-expr->Expr [e : L0-Expr]) : Expr
   (match e
@@ -244,8 +227,7 @@
    ; TODO: (first X) hack to handle multiple return vals
    (filter-map
     (lambda ([ids : (Listof Symbol)] [val : Expr])
-      ; TODO: Change this to a type check where we handle functions, we don't want to lift function results
-      (if (and (symbol? val) (anon? val)) #f (first ids)))
+      (first ids))
     ids
     vals)
    (lift-func-locals body)))
@@ -256,9 +238,11 @@
   (append-map
    (lambda ([e : Expr]) : (Listof Symbol)
      (match e
-       [(LetVals ids vals body) (append (lfe-helper vals) (lfe-helper body))]
-       [(LetRecVals ids vals body) (append (lfe-helper vals) (lfe-helper body))]
-       [(App fn args) (lfe-helper args)]
+       [(LetVals ids vals body) (append (lift-func-envs vals (append known-ids (cast (flatten ids) (Listof Symbol))))
+                                        (lift-func-envs body (append known-ids (cast (flatten ids) (Listof Symbol)))))]
+       [(LetRecVals ids vals body) (append (lift-func-envs vals (append known-ids (cast (flatten ids) (Listof Symbol))))
+                                        (lift-func-envs body (append known-ids (cast (flatten ids) (Listof Symbol)))))]
+       [(App fn args) (append (lfe-helper (list fn)) (lfe-helper args))]
        [(If test t f) (append (lfe-helper (list test)) (lfe-helper (list t)) (lfe-helper (list f)))]
        [(Begin exprs) (lfe-helper exprs)]
        [(Begin0 exprs) (lfe-helper exprs)]
@@ -280,8 +264,7 @@
                         (filter-map (get-symbol-id d-types) (map Id-sym (Closure-params c)))
                         (filter-map (get-symbol-id d-types) (map Id-sym (Closure-env-params c)))
                         (filter-map (get-symbol-id d-types) (map Id-sym (Closure-locals c)))
-                        (Closure-body c)
-                        (Closure-ret-type c)))
+                        (Closure-body c)))
              (Module-funcs mod)))))
 
 (define get-symbol-id : (-> TypeTable (-> Symbol (U #f Id)))

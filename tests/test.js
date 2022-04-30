@@ -35,42 +35,46 @@ const testFiles = (files, expected) => {
     const out_path = `out/${basename}.wat`;
 
     const copy_rasm = `cp ../rasm.js .`;
+    const copy_index = `cp ../example_index.js .`;
     const compile_file = `racket ../compiler.rkt ${rkt_path}`;
     const generate_wasm = `wat2wasm ${out_path} -o out/a.wasm`;
 
-    my_exec(`${copy_rasm} && ${compile_file} && ${generate_wasm}`, () => {
-      const wasm_helper = require("./rasm");
-      const expected_exports = expected[basename]["exports"];
-      const bytes = fs.readFileSync("out/a.wasm");
+    my_exec(
+      `${copy_rasm} && ${copy_index} && ${compile_file} && ${generate_wasm}`,
+      () => {
+        const wasm_helper = require("./rasm");
+        const expected_exports = expected[basename]["exports"];
+        const bytes = fs.readFileSync("out/a.wasm");
 
-      wasm_helper.instantiate(bytes).then((obj) => {
-        for (const funcname in obj.funcs) {
-          const expectations = expected_exports[funcname];
-          const wasm_export = obj.funcs[funcname];
-          let result = expectations.hasOwnProperty("params")
-            ? wasm_export(...expectations["params"])
-            : wasm_export();
+        wasm_helper.instantiate(bytes).then((obj) => {
+          for (const funcname in obj.funcs) {
+            const expectations = expected_exports[funcname];
+            const wasm_export = obj.funcs[funcname];
+            let result = expectations.hasOwnProperty("params")
+              ? wasm_export(...expectations["params"])
+              : wasm_export();
 
-          const expected_val = expectations["val"];
-          my_assert(
-            expected_val,
-            result,
-            `FAIL: ${funcname} -> expected ${expected_val} got ${result}`
-          );
-        }
+            const expected_val = expectations["val"];
+            my_assert(
+              expected_val,
+              result,
+              `FAIL: ${funcname} -> expected ${expected_val} got ${result}`
+            );
+          }
 
-        for (const valname in obj.vals) {
-          const expectations = expected_exports[valname];
-          const expected_val = expectations["val"];
-          const wasm_export = obj.vals[valname];
-          my_assert(
-            expected_val,
-            wasm_export,
-            `FAIL: ${valname} -> expected ${expected_val} got ${wasm_export}`
-          );
-        }
-      });
-    });
+          for (const valname in obj.vals) {
+            const expectations = expected_exports[valname];
+            const expected_val = expectations["val"];
+            const wasm_export = obj.vals[valname];
+            my_assert(
+              expected_val,
+              wasm_export,
+              `FAIL: ${valname} -> expected ${expected_val} got ${wasm_export}`
+            );
+          }
+        });
+      }
+    );
   });
 };
 

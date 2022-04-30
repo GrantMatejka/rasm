@@ -23,6 +23,7 @@
     (close-input-port file)
     expansion))
 
+
 ; exp is a fully expanded racket program
 (define (build-ast exp)
   (let ((ast (process-top exp)))
@@ -80,7 +81,9 @@
        (if named?
            (Func 'FILL_IN p-formals p-exprs)
            (L0-Lam p-formals p-exprs)))]
-    ; TODO: We will just make a lambda for each variation and call it based on the num of args given
+    ; TODO: Implementation is just create a dispatcher lambda and a separate lambda for each case
+    ; - The dispatcher will calculate the length of the parameters provided and will call the expected lambda
+    ; - We could also do this by wrapping each case in a single lambda behind if cases
     [(case-lambda (formals body) ...)
      (CaseLambda (map (lambda (f b) (Func 'CL_TODO (process-formal f) (process-expr b)))
                       (stx->list #'(formals ...))
@@ -127,8 +130,6 @@
   (kernel-syntax-case formal #f
     [(id ...) (map get-true-id (stx->list #'(id ...)))]
     [id (get-true-id #'id)]
-    ; TODO: IS this a fine way to process this? Just treat it all as a list??
-    ;  Or should we preserve the pairness?
     [(id1 ... . id2) (append
                       (map get-true-id (stx->list #'(id1 ...)))
                       (list (get-true-id #'id2)))]
@@ -147,8 +148,8 @@
   (if (eof-object? (syntax-e datum))
       '()
       (match (syntax-e datum)
-        [(? integer? r) (Int r)]
         [(? real? r) (Float r)]
+        [(? integer? r) (Int r)]
         [(? boolean? b) (if b (Int 1) (Int 0))]
         [(? char? c) (Int (char->integer c))]
         [other (error 'unknown (~a datum))])))
@@ -192,9 +193,4 @@
        (lambda (f) (syntax-e (format-id #'p "set-~a-~a!" #'p f)))
        #'(f ...)))]
     [_ (error "unsupported provide form " (syntax->datum r))]))
-
-; Just like findf but returns user defined value if not found
-(define (my-findf lam l [not-found #f])
-  (let ((found? (findf lam l)))
-    (if found? found? not-found)))
 

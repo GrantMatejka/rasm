@@ -34,16 +34,18 @@
                  [params : (Listof Id)]
                  [env-params : (Listof Id)]
                  [locals : (Listof Id)]
-                 [body : (Listof Expr)]
-                 [ret-type : (U 'i32 'i64 'f64 'void)]) #:transparent)
+                 [body : (Listof Expr)]) #:transparent)
 
 (struct Id ([sym : Symbol] [type : Type]) #:transparent)
 
 (define-type Type (U Symbol 'i32 'i64 'f64))
 
-(define-type Expr (U App CaseLambda If LetVals LetRecVals Begin Begin0 Set TopId Value))
+(define-type Expr (U App Call IndirectCall CaseLambda If LetVals LetRecVals Begin Begin0 Set TopId Value))
 
 (struct App ([func : Symbol] [args : (Listof Expr)]) #:transparent)
+; We only call primitive functions directly
+(struct Call ([func : Symbol] [args : (Listof Expr)]) #:transparent)
+(struct IndirectCall ([func : Symbol] [args : (Listof Expr)]) #:transparent)
 (struct CaseLambda ([funcs : (Listof Func)]) #:transparent)
 (struct If ([test : Expr] [then : Expr] [else : Expr]) #:transparent)
 (struct LetVals ([ids : (Listof (Listof Symbol))] [val-exprs : (Listof Expr)] [body : (Listof Expr)]) #:transparent)

@@ -1,5 +1,5 @@
 {
-  "constant_arith": {
+  "simple_arithmetic": {
     "exports": {
       "add1": {
         "val": 45742
@@ -36,6 +36,58 @@
       },
       "div3": {
         "val": 1.25
+      },
+      "div4": {
+        "val": 5.0
+      },
+      "div5": {
+        "val": 5.0
+      },
+      "div6": {
+        "val": 2.5
+      },
+      "div7": {
+        "val": 2.0
+      }
+    }
+  },
+  "nested_arithmetic": {
+    "exports": {
+      "add1": {
+        "val": 50752
+      },
+      "add2": {
+        "val": 99.7
+      },
+      "add3": {
+        "val": 65.2
+      },
+      "sub1": {
+        "val": 123410
+      },
+      "sub2": {
+        "val": 0.7
+      },
+      "sub3": {
+        "val": 46.05
+      },
+      "mul1": {
+        "val": 360000
+      },
+      "mul2": {
+        "val": 17.0625
+      },
+      "mul3": {
+        "val": 1415.925
+      },
+      "div1": {
+        "val": 450
+      },
+      "div2": {
+        "val": 52.690
+      },
+      "div3": {
+        "val": 2.0
       }
     }
   },

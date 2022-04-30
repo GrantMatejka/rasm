@@ -1,7 +1,5 @@
 (module add racket
-  (provide add1)
-  (provide seven)
-  (provide double)
+  (provide add1 seven double sub1 square add tmp seven half)
 
   (define tmp 3)
   
