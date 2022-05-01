@@ -1,5 +1,5 @@
 {
-  "simple_arithmetic": {
+  "arithmetic_basic": {
     "exports": {
       "add1": {
         "val": 45742
@@ -51,7 +51,7 @@
       }
     }
   },
-  "nested_arithmetic": {
+  "arithmetic_nested": {
     "exports": {
       "add1": {
         "val": 50752
@@ -91,7 +91,48 @@
       }
     }
   },
-  "add1": {
+  "arithmetic_complex": {
+    "exports": {
+      "a1": {
+        "val": 232.22
+      },
+      "a2": {
+        "val": 225
+      },
+      "a3": {
+        "params": [
+          3
+        ],
+        "val": 90
+      },
+      "a4": {
+        "params": [
+          10,
+          8
+        ],
+        "val": 0
+      },
+      "a5": {
+        "params": [
+          1,
+          2,
+          3
+        ],
+        "val": -26
+      }
+    }
+  },
+  "add1_A": {
+    "exports": {
+      "add1": {
+        "params": [
+          5
+        ],
+        "val": 6
+      }
+    }
+  },
+  "add1_B": {
     "exports": {
       "add1": {
         "params": [
@@ -105,12 +146,6 @@
     "exports": {
       "add": {
         "params": [],
-        "val": 22
-      },
-      "a": {
-        "params": [
-          3
-        ],
         "val": 22
       }
     }

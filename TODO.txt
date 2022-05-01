@@ -1,0 +1,6 @@
+- [ ] Solidify test cases
+- [ ] Fill in test case expected values
+- [ ] Figure out a benchmarking system
+- [ ] Build a framework to compare generated code with other code (AssemblyScript?)
+- [ ] *** Get named let working ***
+

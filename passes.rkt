@@ -7,6 +7,7 @@
 
 (define (full-pass [ast : FEP]) : Module
   (typecheck ast)
+  ;(display (~a (lift-lambdas (uniquify ast))))
   (discover-types (lift-closures (generate-init (lift-lambdas (uniquify ast))))))
 
 ; Super simple typecheck but can elaborate later
@@ -124,9 +125,25 @@
     [(L0-App fn args) (L0-App (match fn
                                 [(? symbol? s) s]
                                 [(L0-Lam p b) (lift-expr-lambdas fn)]
-                                [other (let ((name (gensym '__lambda)))
-                                         (set! LAMBDAS (cons (Func name '() (list (lift-expr-lambdas fn))) LAMBDAS))
-                                         name)]) 
+                                [(L0-LetVals ids vals body) (let ((name (gensym '__lambda)))
+                                                              (set! LAMBDAS
+                                                                    (cons
+                                                                     (Func name '() (list
+                                                                                     (lift-expr-lambdas
+                                                                                      (L0-LetVals ids vals
+                                                                                                  (append (reverse (cdr (reverse body))) (list (L0-App (last body) '())))))))
+                                                                     LAMBDAS))
+                                                              name)]
+                                [(L0-LetRecVals ids vals body) (let ((name (gensym '__lambda)))
+                                                                 (set! LAMBDAS
+                                                                       (cons
+                                                                        (Func name '() (list
+                                                                                        (lift-expr-lambdas
+                                                                                         (L0-LetVals ids vals
+                                                                                                     (append (reverse (cdr (reverse body))) (list (L0-App (last body) '())))))))
+                                                                        LAMBDAS))
+                                                                 name)]
+                                [other (error 'application-expansion "Cannot apply ~v" fn)]) 
                               (map lift-expr-lambdas args))]
     [(L0-CaseLambda funcs) (L0-CaseLambda (map lift-func-lambdas funcs))]
     [(L0-If test t f) (L0-If (lift-expr-lambdas test) (lift-expr-lambdas t) (lift-expr-lambdas f))]
@@ -167,12 +184,12 @@
                (map sym->temp-id (Func-params f))
                (map sym->temp-id
                     (lift-func-envs body
-                               (append
-                                (hash-keys prims)
-                                (map Func-name funcs)
-                                (Func-params f)
-                                locals
-                                globals)))
+                                    (append
+                                     (hash-keys prims)
+                                     (map Func-name funcs)
+                                     (Func-params f)
+                                     locals
+                                     globals)))
                (map sym->temp-id locals)
                body))))
 
@@ -240,7 +257,7 @@
        [(LetVals ids vals body) (append (lift-func-envs vals (append known-ids (cast (flatten ids) (Listof Symbol))))
                                         (lift-func-envs body (append known-ids (cast (flatten ids) (Listof Symbol)))))]
        [(LetRecVals ids vals body) (append (lift-func-envs vals (append known-ids (cast (flatten ids) (Listof Symbol))))
-                                        (lift-func-envs body (append known-ids (cast (flatten ids) (Listof Symbol)))))]
+                                           (lift-func-envs body (append known-ids (cast (flatten ids) (Listof Symbol)))))]
        [(Call fn args) (append (lfe-helper (list fn)) (lfe-helper args))]
        [(IndirectCall fn args) (append (lfe-helper (list fn)) (lfe-helper args))]
        [(If test t f) (append (lfe-helper (list test)) (lfe-helper (list t)) (lfe-helper (list f)))]

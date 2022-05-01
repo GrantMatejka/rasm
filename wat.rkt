@@ -32,6 +32,7 @@
      (\; ------------------------------ \;)
      ,@(build-functable mod)
      ,@(export-func-num-param mod)
+     (\; All functions take a pointer to the parameter list and a pointer to their environment as parameters \;)
      (type $__function_type (func (param i32) (param i32) (result i32)))
      ,@(build-globals mod)
      ,@(build-funcs mod)
@@ -164,19 +165,25 @@
                     (list `(global.get ,(wat-name id)))
                     (error 'top-id "Cannot find expected global id ~a" id))]
     ; If we get here, we want to retrieve the value of the specified id
-    [(? symbol? id) (let ((func (findf (lambda ([f : Closure]) (equal? id (Closure-name f))) funcs)))
-                       (cond
-                         [(local? id) (list `(local.get ,(wat-name id)))]
+    [(? symbol? id) (letrec ((p-id (if (hash-has-key? env id)
+                                       (let ((val (hash-ref env id)))
+                                         (hash-remove! env id)
+                                         val)
+                                       id))
+                             (func (findf (lambda ([f : Closure]) (equal? p-id (Closure-name f))) funcs)))
+                      
+                      (cond
+                        [(local? p-id) (list `(local.get ,(wat-name p-id)))]
                          
-                         ; TODO : If we implement list ref this should work??? bc every function will know where it expects the env params to be
-                         [(env? id) (list `(call $__list_ref
-                                                 (local.get $env_list)
-                                                 (i32.const ,(index-of env-params id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) id))))))]
-                         [(global? id) (list `(global.get ,(wat-name id)))]
-                         ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
-                         [func (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
-                                 (list `(call $__allocate_func (i32.const ,(hash-ref func-table id)) ,(build-env env-exprs))))]
-                         [else (error 'unknown "ERROR: Uknown Id ~v ~a ~a ~a" id globals env-params locals)]))]
+                        ; TODO : If we implement list ref this should work??? bc every function will know where it expects the env params to be
+                        [(env? p-id) (list `(call $__list_ref
+                                                  (local.get $env_list)
+                                                  (i32.const ,(index-of env-params p-id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) p-id))))))]
+                        [(global? p-id) (list `(global.get ,(wat-name p-id)))]
+                        ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
+                        [func (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
+                                (list `(call $__allocate_func (i32.const ,(hash-ref func-table p-id)) ,(build-env env-exprs))))]
+                        [else (error 'unknown "ERROR: Uknown Id ~v ~a ~a ~a" p-id globals env-params locals)]))]
     [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
     [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))

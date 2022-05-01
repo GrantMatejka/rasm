@@ -8,7 +8,7 @@ const getResult = (ptr, mem) => {
       val = Buffer.from(mem.slice(ptr + 1, ptr + 9)).readDoubleLE();
       return val.toString();
     case 3:
-      return "[function]";
+      return "[lambda]";
     default:
       return -1;
   }
