@@ -35,7 +35,7 @@ Chars are simply i64's. And strings are lists of chars.
 |   0     | Integer  | Read next 8 bytes as the value |
 |   1     | Float    | Read the next 8 bytes as the value |
 |   2     | Pair     | The first i32 is the pointer to the first value while the second i32 is the pointer to the second value |
-|   3     | Function | Read the next i32 as the index to the function table and the i32 after as a pointer to the environment of the function |
+|   3     | Function | Read the next i32 as the index to the function table and the i32 after as a pointer to the environment of the function, the environment of the function is a flat array of pointers, since environment needs are known at compile time |
 
 ---
 

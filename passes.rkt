@@ -111,6 +111,7 @@
 ; Lifting lambdas will result in our final IR
 (define (lift-expr-lambdas [e : L0-Expr]) : L0-Expr
   (match e
+    ; If we get a lambda, we can just directly lift it as a WebAssembly function
     [(L0-Lam params body)
      (let ((name (gensym '__lambda)))
        (set! LAMBDAS (cons (Func name params body) LAMBDAS))
@@ -122,29 +123,13 @@
                                                   (map lift-expr-lambdas vals)
                                                   (map lift-expr-lambdas body))]
     ; If we are ever applying an expression, make it a closure
-    [(L0-App fn args) (L0-App (match fn
-                                [(? symbol? s) s]
-                                [(L0-Lam p b) (lift-expr-lambdas fn)]
-                                [(L0-LetVals ids vals body) (let ((name (gensym '__lambda)))
-                                                              (set! LAMBDAS
-                                                                    (cons
-                                                                     (Func name '() (list
-                                                                                     (lift-expr-lambdas
-                                                                                      (L0-LetVals ids vals
-                                                                                                  (append (reverse (cdr (reverse body))) (list (L0-App (last body) '())))))))
-                                                                     LAMBDAS))
-                                                              name)]
-                                [(L0-LetRecVals ids vals body) (let ((name (gensym '__lambda)))
-                                                                 (set! LAMBDAS
-                                                                       (cons
-                                                                        (Func name '() (list
-                                                                                        (lift-expr-lambdas
-                                                                                         (L0-LetVals ids vals
-                                                                                                     (append (reverse (cdr (reverse body))) (list (L0-App (last body) '())))))))
-                                                                        LAMBDAS))
-                                                                 name)]
-                                [other (error 'application-expansion "Cannot apply ~v" fn)]) 
-                              (map lift-expr-lambdas args))]
+    [(L0-App expr args) (L0-App (lift-expr-lambdas expr) (map lift-expr-lambdas args))
+     #;(match expr
+                          [(? symbol? s) (L0-App s (map lift-expr-lambdas args))]
+                          [(L0-Lam p b) (L0-App (lift-expr-lambdas expr) (map lift-expr-lambdas args))]
+                          [other (let ((name (gensym '__lambda)))
+                                   (set! LAMBDAS (cons (Func name '() (list (lift-expr-lambdas expr))) LAMBDAS))
+                                   (L0-App '__app (list (L0-App name (map lift-expr-lambdas args)))))])]
     [(L0-CaseLambda funcs) (L0-CaseLambda (map lift-func-lambdas funcs))]
     [(L0-If test t f) (L0-If (lift-expr-lambdas test) (lift-expr-lambdas t) (lift-expr-lambdas f))]
     [(L0-Begin exprs) (L0-Begin (map lift-expr-lambdas exprs))]
@@ -202,11 +187,14 @@
                                                (map L0-expr->Expr vals)
                                                (map L0-expr->Expr body))]
     [(L0-App fn args)
-     (if (not (symbol? fn))
-         (error 'conversion "Expected symbol, given ~a" fn)
-         (if (hash-has-key? prims fn)
-             (Call fn (map L0-expr->Expr args))
-             (IndirectCall fn (map L0-expr->Expr args))))]
+     (let ((p-args (map L0-expr->Expr args)))
+       (match fn
+         [(? symbol? fn) (if (hash-has-key? prims fn)
+                             ; primitive
+                             (Call fn p-args)
+                             ; lambda
+                             (IndirectCall fn p-args))]
+         [other (Call '__app (append (list (L0-expr->Expr fn)) p-args))]))]
     [(L0-CaseLambda funcs) (CaseLambda funcs)]
     [(L0-If test t f) (If (L0-expr->Expr test) (L0-expr->Expr t) (L0-expr->Expr f))]
     [(L0-Begin exprs) (Begin (map L0-expr->Expr exprs))]

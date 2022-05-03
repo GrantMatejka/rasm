@@ -53,6 +53,7 @@
 ; We only call primitive functions directly
 (struct Call ([func : Symbol] [args : (Listof Expr)]) #:transparent)
 (struct IndirectCall ([func : Symbol] [args : (Listof Expr)]) #:transparent)
+
 (struct CaseLambda ([funcs : (Listof Func)]) #:transparent)
 (struct If ([test : Expr] [then : Expr] [else : Expr]) #:transparent)
 (struct LetVals ([ids : (Listof (Listof Symbol))] [val-exprs : (Listof Expr)] [body : (Listof Expr)]) #:transparent)

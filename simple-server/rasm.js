@@ -2,16 +2,10 @@ const getResult = (ptr, mem) => {
   let val = 0;
   switch (mem[ptr]) {
     case 0: // int
-      val = new DataView(mem.slice(ptr + 1, ptr + 9).buffer).getBigUint64(
-        0,
-        true
-      );
+      val = new DataView(mem.slice(ptr + 1, ptr + 9).buffer).getBigUint64(0, true);
       return val.toString();
     case 1: // float
-      val = new DataView(mem.slice(ptr + 1, ptr + 9).buffer).getFloat64(
-        0,
-        true
-      );
+      val = new DataView(mem.slice(ptr + 1, ptr + 9).buffer).getFloat64(0, true);
       return val.toString();
     case 3:
       return "[lambda]";
@@ -109,4 +103,4 @@ const instantiate = (bytes) => {
   );
 };
 
-module.exports = { instantiate, getResult };
+//module.exports = { instantiate, getResult };

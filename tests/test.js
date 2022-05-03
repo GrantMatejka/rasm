@@ -82,7 +82,10 @@ const testFiles = (files, expected) => {
               did_not_test.push(valname);
             }
           }
-          console.log(`Did not test: ${did_not_test.join(", ")}`);
+          
+          if (did_not_test.length > 0) {
+            console.log(`Did not test: ${did_not_test.join(", ")}`);
+          }
         });
       }
     );

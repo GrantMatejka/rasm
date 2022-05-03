@@ -30,7 +30,8 @@
                '> '__gt
                '<= '__le
                '>= '__ge
-               'equal? '__eq))
+               'equal? '__eq
+               '__app '__app))
 
 
 
@@ -117,6 +118,13 @@
                            (i32.store (i32.add (i32.const 1) (local.get $ptr)) (local.get $ft_idx))
                            (i32.store (i32.add (i32.const 5) (local.get $ptr)) (local.get $env_ptr))
                            (local.get $ptr))
+                     (func $__app (export \"__app\") (param $func_ptr i32) (param $param_list i32) (result i32)
+                           (if (result i32) (i32.eq (i32.const 3) (i32.load8_u (local.get $func_ptr)))
+                               (then (local.get $param_list)
+                                     (\; Pointer to function env \;)
+                                     (i32.load (i32.add (i32.const 5) (local.get $func_ptr)))
+                                     (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get $func_ptr)))))
+                               (else (i32.const -1))))
                      (func $__list_ref (param $root_ptr i32) (param $idx i32) (result i32)
                            (local $curr_ptr i32)
                            (local.set $curr_ptr (local.get $root_ptr))

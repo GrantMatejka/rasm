@@ -46,7 +46,8 @@
 
 (define (build-functable [mod : Module]) : (Listof Sexp)
   (let ((funcs (filter (lambda ([c : Closure]) (not (equal? (Closure-name c) 'init))) (Module-funcs mod))))
-    `((table ,(length funcs) funcref)
+    `((table $tbl ,(length funcs) funcref)
+      (export \"table\" (table $tbl))
       (elem (i32.const 0)
             ,@(map (lambda ([clo : Closure] [idx : Real])
                      (hash-set! func-table (Closure-name clo) (real->int idx))
@@ -78,40 +79,60 @@
       [(Closure fn params env-params locals body)
        `(func ,(wat-name fn)
               ,@(export? fn exports)
-              ,@(if (equal? fn 'init) '() (list '(param $param_list i32) '(param $env_list i32)))
-              ;,@(wat-params (map Id-sym (append params env-params)))
+              ,@(if (equal? fn 'init) '() (list '(param $param_arr i32) '(param $env_arr i32)))
               ,@(if (equal? fn 'init) '() (list `(result i32)))
-              ,@(wat-locals (map Id-sym (append locals params env-params)))
-              (local $__app_local_arr_ptr i32)
-              ,@(map
+              ,@(build-locals (map Id-sym (append locals params env-params)))
+              ; Every function relies on these helper vars
+              (local $__app_param_arr i32)
+              (local $__clo_env_arr_helper i32)
+              ; Initialize param and env-param locals
+              ,@(init-locals (append params env-params))
+              #;,@(map
                  (lambda ([id : Id] [r : Real])
-                   `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $param_list)))))
+                   `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $param_arr)))))
                  (append params env-params)
                  (range (length (append params env-params))))
-              (local.set $__app_local_arr_ptr (i32.const 0))
-              ,@(process-func-body globals env-params (append params locals) funcs body))]
+              (local.set $__app_param_arr (i32.const 0))
+              (local.set $__clo_env_arr_helper (i32.const 0))
+              ,@(process-func-body globals env-params params locals funcs body))]
       [other (error 'unsupported (~a clo))])))
 
 (define (process-func-body [globals : (Listof Id)]
                            [env-params : (Listof Id)]
+                           [params : (Listof Id)]
                            [locals : (Listof Id)]
                            [funcs : (Listof Closure)]
                            [body : (Listof Expr)]) : (Listof Sexp)
-  (append-map (lambda ([e : Expr]) (process-expr globals env-params locals funcs (make-hash) e)) body))
+  (append-map (lambda ([e : Expr]) (process-expr globals env-params params locals funcs (make-hash) e)) body))
 
 (define (process-expr [globals : (Listof Id)]
                       [env-params : (Listof Id)]
+                      [params : (Listof Id)]
                       [locals : (Listof Id)]
                       [funcs : (Listof Closure)]
                       [env : Env]
                       [expr : Expr]) : (Listof Sexp)
   (define global? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) globals)))
   (define local? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) locals)))
+  (define param? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) params)))
   (define env? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) env-params)))
-  (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params locals funcs env e))))
+  (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params params locals funcs env e))))
   (match expr
-    [(Call fn args) (list `(call ,(wat-name (hash-ref prims fn))
-                                 ,@(append-map (pe-helper env) args)))]
+    [(Call fn args)
+     (if (equal? fn '__app)
+         (list `(\; Apply a first class function \;)
+               `(if (result i32) (i32.eq (i32.const 3) (i32.load8_u ,@((pe-helper env) (first args))))
+                    (then ,@(build-arr (append-map (pe-helper env) (rest args)) '$__app_param_arr)
+                          (\; Pointer to function env \;)
+                          (i32.load (i32.add (i32.const 5) ,@((pe-helper env) (first args))))
+                          (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) ,@((pe-helper env) (first args))))))
+                    (else (i32.const -1)))
+
+               #;`(call ,(wat-name (hash-ref prims fn))
+                        ,@((pe-helper env) (first args))
+                        ,@(setup-param-list (rest args) (pe-helper env))))
+         (list `(call ,(wat-name (hash-ref prims fn))
+                      ,@(append-map (pe-helper env) args))))]
     [(IndirectCall fn args)
      (let ((p-fn (hash-ref env fn (lambda () fn))))
            ; Otherwise we need to call the function indirectly
@@ -120,16 +141,16 @@
                              (if var? (Id-type var?)
                                  (if static? (Closure-name static?) (error 'application "Unknown Function: ~a" fn)))))
                  (pp-fn ((pe-helper env) p-fn)))
-             `((\; Set up parameters for indirect call \;)
+             #;`((\; Set up parameters for indirect call \;)
                (local.set $__app_local_arr_ptr (call $__alloc (i32.const ,(* 4 (length args)))))
                ,@(map
                   (lambda ([src : Sexp] [r : Real])
                     `(i32.store (i32.add (i32.const ,(* (real->int r) 4)) (local.get $__app_local_arr_ptr)) ,src))
-                  (append-map (pe-helper env) args
-                          )
+                  (append-map (pe-helper env) args)
                   (range (length args)))
                (\; Pointer to arguments for function call \;)
-               (local.get $__app_local_arr_ptr)
+               (local.get $__app_local_arr_ptr))
+             `(,@(build-arr (append-map (pe-helper env) args) '$__app_param_arr)
                (\; Pointer to env of the function we\'re calling \;)
                (i32.load (i32.add (i32.const 5) ,@pp-fn))
                (call_indirect (type $__function_type)
@@ -147,7 +168,8 @@
       (filter-map
        ; TODO: HAck around not actually supporting multiple return vals
        (lambda ([l-id : (Listof Symbol)] [val : Expr])
-         (cond
+         `(local.set ,(wat-name (first l-id)) ,@((pe-helper env) val))
+         #;(cond
            ; We know we have a function to call
            [(symbol? val) (hash-set! env (first l-id) val) #f]
            [else `(local.set ,(wat-name (first l-id)) ,@((pe-helper env) val))]))
@@ -174,25 +196,36 @@
                       
                       (cond
                         [(local? p-id) (list `(local.get ,(wat-name p-id)))]
-                         
-                        ; TODO : If we implement list ref this should work??? bc every function will know where it expects the env params to be
-                        [(env? p-id) (list `(call $__list_ref
+                        ; TODO: The param list is just a flat array of pointers
+                        [(param? p-id) (list `(i32.load
+                                               (i32.add (local.get $param_arr)
+                                                        (i32.mul (i32.const 4)
+                                                                 (i32.const ,(index-of params p-id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) p-id))))))))]
+                        [(env? p-id) (list `(i32.load
+                                               (i32.add (local.get $env_arr)
+                                                        (i32.mul (i32.const 4)
+                                                                 (i32.const ,(index-of env-params p-id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) p-id)))))))
+                                           #;`(call $__list_ref
                                                   (local.get $env_list)
                                                   (i32.const ,(index-of env-params p-id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) p-id))))))]
                         [(global? p-id) (list `(global.get ,(wat-name p-id)))]
                         ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
                         [func (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
-                                (list `(call $__allocate_func (i32.const ,(hash-ref func-table p-id)) ,(build-env env-exprs))))]
+                                `((call $__allocate_func (i32.const ,(hash-ref func-table p-id))
+                                        ,@(build-arr env-exprs '$__clo_env_arr_helper))))]
                         [else (error 'unknown "ERROR: Uknown Id ~v ~a ~a ~a" p-id globals env-params locals)]))]
     [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
     [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))
 
-(define (build-env [exprs : (Listof Sexp)]) : Sexp
-  (foldl
-   (lambda ([e : Sexp] [curr : Sexp]) `(call $__allocate_pair ,e ,curr))
-   '(i32.const 0)
-   exprs))
+(define (build-arr [exprs : (Listof Sexp)] [list-name : (U '$__app_param_arr '$__clo_env_arr_helper)]) : (Listof Sexp)
+  `((local.set ,list-name (call $__alloc (i32.const ,(* 4 (length exprs)))))
+    ,@(map
+       (lambda ([src : Sexp] [r : Real])
+         `(i32.store (i32.add (i32.const ,(* (real->int r) 4)) (local.get ,list-name)) ,src))
+       exprs
+       (range (length exprs)))
+    (local.get ,list-name)))
 
 ; TODO: Actually handle exports, but low priority
 (define (export? [fn : Symbol] [exports : (Listof Provide)]) : (Listof Sexp)
@@ -201,31 +234,20 @@
       (list `(export ,(~a '\" fn '\")))
       '()))
 
-(define (wat-params [params : (Listof Symbol)]) : (Listof Sexp)
-  (map (lambda ([p : Symbol]) `(param ,(wat-name p) i32)) params))
-
-(define (wat-locals [locals : (Listof Symbol)]) : (Listof Sexp)
-  ; TODO: I wonder if we actually need locals to be pointers too??
+(define (build-locals [locals : (Listof Symbol)]) : (Listof Sexp)
   (map (lambda ([l : Symbol]) `(local ,(wat-name l) i32)) locals))
 
-(define (wat-results [fn : Symbol] [ret-types : (Listof Symbol)]) : (Listof Sexp)
-  (if (equal? fn 'init) '() `((result ,@ret-types))))
-
-(define (functype-name [s : Symbol]) : Symbol
-  (wat-name (string->symbol (~a "ftype_" s))))
+(define (init-locals [locals : (Listof Id)]) : (Listof Sexp)
+  (map
+   (lambda ([id : Id] [r : Real])
+     `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $param_arr)))))
+   locals
+   (range (length locals))))
 
 (define (wat-name [id : Symbol]) : Symbol
   (string->symbol (~a "$" id)))
 
-(define (block-name [label : String]) : Symbol
-  (wat-name (string->symbol (~a label (gi-bc)))))
 
-
-(define block-counter 0)
-(define (gi-bc) : Integer
-  (let ((bc block-counter))
-    (set! block-counter (add1 bc))
-    bc))
 
 
 
