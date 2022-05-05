@@ -1,5 +1,5 @@
 (module add racket
-  (provide f x)
+  (provide x)
   
   (define f
     (let ((y 5))

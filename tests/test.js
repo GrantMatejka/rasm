@@ -42,13 +42,12 @@ const testFiles = (files, expected) => {
     my_exec(
       `${copy_rasm} && ${copy_index} && ${compile_file} && ${generate_wasm}`,
       () => {
+        console.log(`Testing: ${basename}`);
         const wasm_helper = require("./rasm");
         const expected_exports = expected[basename]["exports"];
         const bytes = fs.readFileSync("out/a.wasm");
 
         wasm_helper.instantiate(bytes).then((obj) => {
-          let did_not_test = [];
-
           for (const funcname in obj.funcs) {
             const expectations = expected_exports[funcname];
             if (expectations) {
@@ -56,15 +55,13 @@ const testFiles = (files, expected) => {
               let result = expectations.hasOwnProperty("params")
                 ? wasm_export(...expectations["params"])
                 : wasm_export();
-  
+
               const expected_val = expectations["val"];
               my_assert(
                 expected_val,
                 result,
                 `FAIL: ${funcname} -> expected ${expected_val} got ${result}`
               );
-            } else {
-              did_not_test.push(funcname);
             }
           }
 
@@ -78,13 +75,7 @@ const testFiles = (files, expected) => {
                 wasm_export,
                 `FAIL: ${valname} -> expected ${expected_val} got ${wasm_export}`
               );
-            } else {
-              did_not_test.push(valname);
             }
-          }
-          
-          if (did_not_test.length > 0) {
-            console.log(`Did not test: ${did_not_test.join(", ")}`);
           }
         });
       }
@@ -94,7 +85,7 @@ const testFiles = (files, expected) => {
 
 let files = [];
 if (process.argv[2] === "all") {
-  files = expected.keys();
+  files = Object.keys(expected);
   my_exec(`raco make ../compiler.rkt`, () => testFiles(files, expected));
 } else {
   files.push(process.argv[2]);

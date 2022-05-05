@@ -85,15 +85,12 @@
               ; Every function relies on these helper vars
               (local $__app_param_arr i32)
               (local $__clo_env_arr_helper i32)
+              (local $__tmp_res i32)
               ; Initialize param and env-param locals
               ,@(init-locals (append params env-params))
-              #;,@(map
-                 (lambda ([id : Id] [r : Real])
-                   `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $param_arr)))))
-                 (append params env-params)
-                 (range (length (append params env-params))))
               (local.set $__app_param_arr (i32.const 0))
               (local.set $__clo_env_arr_helper (i32.const 0))
+              (local.set $__tmp_res (i32.const 0))
               ,@(process-func-body globals env-params params locals funcs body))]
       [other (error 'unsupported (~a clo))])))
 
@@ -116,47 +113,41 @@
   (define local? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) locals)))
   (define param? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) params)))
   (define env? (lambda ([id : Symbol]) (findf (lambda ([i : Id]) (equal? id (Id-sym i))) env-params)))
+  (define (get-lam-binding [id : Symbol]) : Symbol
+    (let ((binding (findf (lambda ([i : Id]) (equal? id (Id-sym i)))
+                          (append locals params env-params globals)))
+          (func (findf (lambda ([fn : Symbol]) (equal? id fn))
+                       (map Closure-name funcs))))
+      ; Var will overshadow func
+      (if binding
+          (if (anon? (Id-type binding))
+              (Id-type binding)
+              (Id-sym binding))
+          (if func
+              func
+              (error 'id "Uknown id: ~a" id)))))
+  
   (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params params locals funcs env e))))
   (match expr
     [(Call fn args)
      (if (equal? fn '__app)
-         (list `(\; Apply a first class function \;)
-               `(if (result i32) (i32.eq (i32.const 3) (i32.load8_u ,@((pe-helper env) (first args))))
-                    (then ,@(build-arr (append-map (pe-helper env) (rest args)) '$__app_param_arr)
-                          (\; Pointer to function env \;)
-                          (i32.load (i32.add (i32.const 5) ,@((pe-helper env) (first args))))
-                          (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) ,@((pe-helper env) (first args))))))
-                    (else (i32.const -1)))
-
-               #;`(call ,(wat-name (hash-ref prims fn))
-                        ,@((pe-helper env) (first args))
-                        ,@(setup-param-list (rest args) (pe-helper env))))
+         (let ((first-arg ((pe-helper env) (first args)))
+               (rest-args (append-map (pe-helper env) (rest args))))
+           `((\; Apply a first class function \;)
+             (local.set $__tmp_res ,@first-arg)
+             ,@(build-arr rest-args '$__app_param_arr)
+             (i32.load (i32.add (i32.const 5) (local.get $__tmp_res)))
+           (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get $__tmp_res))))))
          (list `(call ,(wat-name (hash-ref prims fn))
                       ,@(append-map (pe-helper env) args))))]
     [(IndirectCall fn args)
-     (let ((p-fn (hash-ref env fn (lambda () fn))))
-           ; Otherwise we need to call the function indirectly
-           (letrec ((funcname (let ((var? (findf (lambda ([id : Id]) (equal? (Id-sym id) p-fn)) (append globals env-params locals)))
-                                 (static? (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) p-fn)) funcs)))
-                             (if var? (Id-type var?)
-                                 (if static? (Closure-name static?) (error 'application "Unknown Function: ~a" fn)))))
-                 (pp-fn ((pe-helper env) p-fn)))
-             #;`((\; Set up parameters for indirect call \;)
-               (local.set $__app_local_arr_ptr (call $__alloc (i32.const ,(* 4 (length args)))))
-               ,@(map
-                  (lambda ([src : Sexp] [r : Real])
-                    `(i32.store (i32.add (i32.const ,(* (real->int r) 4)) (local.get $__app_local_arr_ptr)) ,src))
-                  (append-map (pe-helper env) args)
-                  (range (length args)))
-               (\; Pointer to arguments for function call \;)
-               (local.get $__app_local_arr_ptr))
-             `(,@(build-arr (append-map (pe-helper env) args) '$__app_param_arr)
-               (\; Pointer to env of the function we\'re calling \;)
-               (i32.load (i32.add (i32.const 5) ,@pp-fn))
-               (call_indirect (type $__function_type)
-                              ,(if (hash-has-key? func-table fn)
-                                   `(i32.const ,(hash-ref func-table fn))
-                                   `(i32.load (i32.add (i32.const 1) ,@pp-fn)))))))]
+     (let ((p-fn ((pe-helper env) (hash-ref env fn (lambda () (get-lam-binding fn))))))
+       `(,@(build-arr (append-map (pe-helper env) args) '$__app_param_arr)
+         (i32.load (i32.add (i32.const 5) ,@p-fn))
+         (call_indirect (type $__function_type)
+                        ,(if (hash-has-key? func-table fn)
+                             `(i32.const ,(hash-ref func-table fn))
+                             `(i32.load (i32.add (i32.const 1) ,@p-fn))))))]
     [(If test t f)
      (list `(if (result i32) (i64.eqz (i64.load (i32.add (i32.const 1) ,@((pe-helper env) test))))
                 ; Since we are checking the conditional for eqz we need to reverse the conditions
@@ -166,11 +157,8 @@
     [(LetVals ids vals exprs)
      (append
       (filter-map
-       ; TODO: HAck around not actually supporting multiple return vals
        (lambda ([l-id : (Listof Symbol)] [val : Expr])
-         `(local.set ,(wat-name (first l-id)) ,@((pe-helper env) val))
-         #;(cond
-           ; We know we have a function to call
+         (cond
            [(symbol? val) (hash-set! env (first l-id) val) #f]
            [else `(local.set ,(wat-name (first l-id)) ,@((pe-helper env) val))]))
        ids
@@ -187,36 +175,36 @@
                     (list `(global.get ,(wat-name id)))
                     (error 'top-id "Cannot find expected global id ~a" id))]
     ; If we get here, we want to retrieve the value of the specified id
-    [(? symbol? id) (letrec ((p-id (if (hash-has-key? env id)
-                                       (let ((val (hash-ref env id)))
-                                         (hash-remove! env id)
-                                         val)
-                                       id))
-                             (func (findf (lambda ([f : Closure]) (equal? p-id (Closure-name f))) funcs)))
-                      
-                      (cond
-                        [(local? p-id) (list `(local.get ,(wat-name p-id)))]
-                        ; TODO: The param list is just a flat array of pointers
-                        [(param? p-id) (list `(i32.load
-                                               (i32.add (local.get $param_arr)
-                                                        (i32.mul (i32.const 4)
-                                                                 (i32.const ,(index-of params p-id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) p-id))))))))]
-                        [(env? p-id) (list `(i32.load
-                                               (i32.add (local.get $env_arr)
-                                                        (i32.mul (i32.const 4)
-                                                                 (i32.const ,(index-of env-params p-id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) p-id)))))))
-                                           #;`(call $__list_ref
-                                                  (local.get $env_list)
-                                                  (i32.const ,(index-of env-params p-id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) p-id))))))]
-                        [(global? p-id) (list `(global.get ,(wat-name p-id)))]
+    [(? symbol? s) (letrec ((id&env (if (hash-has-key? env s)
+                                                 (let ((env-id (hash-ref env s))
+                                                       (new-env (make-hash (hash->list (hash-remove (make-immutable-hash (hash->list env)) s)))))
+                                                   (list env-id new-env))
+                                                 (list s env)))
+                                   (func (findf (lambda ([f : Closure]) (equal? (first id&env) (Closure-name f))) funcs)))
+                     (define id (first id&env))
+                     (define env (second id&env))
+                     (cond
+                        [(local? id) (list `(local.get ,(wat-name id)))]
+                        ; The param arr is just a flat array of pointers
+                        [(param? id) (list `(i32.load
+                                 (i32.add (local.get $param_arr)
+                                          (i32.mul (i32.const 4)
+                                                   (i32.const ,(index-of params id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) id))))))))]
+                        ; The env arr is just a flat array of pointers
+                        [(env? id) (list `(i32.load
+                                 (i32.add (local.get $env_arr)
+                                          (i32.mul (i32.const 4)
+                                                   (i32.const ,(index-of env-params id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) id))))))))]
+                        [(global? id) (list `(global.get ,(wat-name id)))]
                         ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
-                        [func (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
-                                `((call $__allocate_func (i32.const ,(hash-ref func-table p-id))
+                        [func  (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
+                                `((call $__allocate_func (i32.const ,(hash-ref func-table id))
                                         ,@(build-arr env-exprs '$__clo_env_arr_helper))))]
-                        [else (error 'unknown "ERROR: Uknown Id ~v ~a ~a ~a" p-id globals env-params locals)]))]
+                        [else (error 'unknown "ERROR: Uknown Id ~v ~a ~a ~a" id globals env-params locals)]))]
     [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
     [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))
+
 
 (define (build-arr [exprs : (Listof Sexp)] [list-name : (U '$__app_param_arr '$__clo_env_arr_helper)]) : (Listof Sexp)
   `((local.set ,list-name (call $__alloc (i32.const ,(* 4 (length exprs)))))
@@ -247,21 +235,5 @@
 (define (wat-name [id : Symbol]) : Symbol
   (string->symbol (~a "$" id)))
 
-
-
-
-
-#;(define (get-clo-env-params [src : Sexp] [size-env : Integer]) : (Listof Sexp)
-  (map
-   (lambda ([r : Real])
-     (let ((nestedness (real->int r)))
-       (gcep-helper src nestedness)))
-   (range size-env)))
-
-#;(define (gcep-helper [src : Sexp] [size : Integer]) : Sexp
-  (if (equal? 0 size)
-      ; Get the value of the final element in the env
-      `(i32.load (i32.add (i32.const 1) (i32.load (i32.add (i32.const 5) ,@src))))
-      `(i32.load (i32.add (i32.const 5) ,(gcep-helper src (sub1 size))))))
 
 

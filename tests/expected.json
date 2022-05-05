@@ -150,32 +150,49 @@
       }
     }
   },
-  "addL": {
-    "exports": {
-      "add": {
-        "val": 16
-      },
-      "sub": {
-        "val": 1
-      }
-    }
-  },
   "big": {
     "exports": {
+      "tmp": {
+        "val": 3
+      },
+      "seven": {
+        "val": 7
+      },
       "add1": {
         "params": [
           32
         ],
         "val": 33
       },
-      "seven": {
-        "val": 7
+      "sub1": {
+        "params": [
+          32
+        ],
+        "val": 31
+      },
+      "half": {
+        "params": [
+          32
+        ],
+        "val": 16
       },
       "double": {
         "params": [
           32
         ],
         "val": 64
+      },
+      "square": {
+        "params": [
+          5
+        ],
+        "val": 25
+      },
+      "add": {
+        "params": [
+          33, 44
+        ],
+        "val": 77
       }
     }
   },
@@ -185,7 +202,7 @@
         "params": [
           15
         ],
-        "val": 2
+        "val": 3
       }
     }
   },
@@ -233,12 +250,6 @@
   },
   "lam_env3": {
     "exports": {
-      "f": {
-        "params": [
-          2
-        ],
-        "val": 7
-      },
       "x": {
         "val": 7
       }
@@ -264,6 +275,9 @@
   "loop": {
     "exports": {
       "my-loop": {
+        "params": [
+          0
+        ],
         "val": 10
       }
     }
@@ -275,6 +289,23 @@
           5
         ],
         "val": 25
+      }
+    }
+  },
+  "test_02": {
+    "exports": {
+      "my-fac": {
+        "val": 3628800
+      }
+    }
+  },
+  "test_03": {
+    "exports": {
+      "my-fac": {
+        "params": [
+          13
+        ],
+        "val": 6227020800
       }
     }
   },

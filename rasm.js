@@ -14,6 +14,7 @@ const getResult = (ptr, mem) => {
       );
       return val.toString();
     case 3:
+      // TODO: How do we want to handle lambdas returned from functions
       return "[lambda]";
     default:
       return -1;
