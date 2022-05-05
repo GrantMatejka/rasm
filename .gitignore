@@ -7,6 +7,6 @@ out/
 .vscode
 compiled/
 
-tests/out/
-tests/rasm.js
-tests/example_index.js
+testing/out/
+testing/rasm.js
+testing/example_index.js
