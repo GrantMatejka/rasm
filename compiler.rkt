@@ -15,9 +15,7 @@
  [("--dev") "write intermediate forms to dev files. Expects \"dev/expanded\" and \"dev/ast\" to exist"
             (set! dev #t)]
  #:args ([source #f])
- (cond [(and in source)
-        (raise-user-error "can't supply --stdin with a source file")]
-       [source (set! in source)]))
+ (set! in source))
 
 (define input (open-input-file in))
 

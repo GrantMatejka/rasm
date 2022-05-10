@@ -130,6 +130,7 @@
   (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params params locals funcs env e))))
   (match expr
     [(Call fn args)
+     ; TODO: See if we can combine these
      (if (equal? fn '__app)
          (let ((first-arg ((pe-helper env) (first args)))
                (rest-args (append-map (pe-helper env) (rest args))))
@@ -200,7 +201,7 @@
                         [func  (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
                                 `((call $__allocate_func (i32.const ,(hash-ref func-table id))
                                         ,@(build-arr env-exprs '$__clo_env_arr_helper))))]
-                        [else (error 'unknown "ERROR: Uknown Id ~v ~a ~a ~a" id globals env-params locals)]))]
+                        [else (error 'unknown "ERROR: Unknown Id ~v ~a ~a ~a ~a" id globals params env-params locals)]))]
     [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
     [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))
