@@ -7,7 +7,7 @@
 
 (define (full-pass [ast : FEP]) : Module
   (typecheck ast)
-  (discover-types (lift-closures (generate-init (lift-lambdas (uniquify ast))))))
+  (discover-types (lift-closures (generate-init (lift-lambdas (generate-unique-ids ast))))))
 
 ; Juse make sure no top level definitions overshadow each other
 (define (typecheck [ast : FEP]) : Void
@@ -17,7 +17,7 @@
                       (FEP-defs ast))))))
     (when dupes (error 'typecheck (~a "ERROR: Overshadowing Globals: " dupes)))))
 
-(define (uniquify [ast : FEP]) : FEP
+(define (generate-unique-ids [ast : FEP]) : FEP
   (FEP
    (FEP-provides ast)
    (map (lambda ([td : TopDefinition])
@@ -96,9 +96,11 @@
 
 ; TODO: Get Lambda env's working better
 
+; In order to lift lambdas, we need to identify every lambda form and capture the current environment at lift time
 (define LAMBDAS : (Listof Func) '())
 (define (lift-lambdas [ast : FEP]) : FEP
   (set! LAMBDAS '())
+  ; Top id's are any globals/top level function names
   (let ((TOP_IDS (append
                   (hash-keys prims)
                   (map
@@ -107,17 +109,16 @@
                    (FEP-defs ast)))))
     (FEP
      (FEP-provides ast)
-   (append
-    (map (lambda ([td : TopDefinition])
-           (if (Func? td) (lift-func-lambdas td TOP_IDS '()) (lift-var-lambdas td TOP_IDS)))
-         (FEP-defs ast))
-    LAMBDAS))))
+     (append
+      (map (lambda ([td : TopDefinition])
+             (if (Func? td) (lift-func-lambdas td TOP_IDS '()) (lift-var-lambdas td TOP_IDS)))
+           (FEP-defs ast))
+      LAMBDAS))))
 
 
 (define (lift-func-lambdas [f : Func] [top-ids : (Listof Symbol)] [env : (Listof Symbol)]) : Func
   (Func (Func-name f)
         (Func-params f)
-        ; Top level functions have no environment needs
         env
         (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids (Func-params f))) (Func-body f))))
 
@@ -136,15 +137,15 @@
     ; TODO: Add ids to known-ids and remove them from unknown ids
     [(L0-LetVals ids vals body)
      (let ((new-env (append env (cast (flatten ids) (Listof Symbol)))))
-                                  (L0-LetVals ids
-                                            (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) vals)
-                                            (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) body)))]
+       (L0-LetVals ids
+                   (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) vals)
+                   (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) body)))]
     ; TODO: Add ids to known-ids and remove them from unknown ids
     [(L0-LetRecVals ids vals body)
      (let ((new-env (append env (cast (flatten ids) (Listof Symbol)))))
-                                  (L0-LetRecVals ids
-                                            (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) vals)
-                                            (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) body)))]
+       (L0-LetRecVals ids
+                      (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) vals)
+                      (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) body)))]
     ; If we are ever applying an expression, make it a closure
     [(L0-App expr args) (L0-App (lift-expr-lambdas expr top-ids env) (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids env)) args))]
     [(L0-CaseLambda funcs) (L0-CaseLambda (map (lambda ([f : L0-Expr]) (lift-expr-lambdas f top-ids env)) funcs))]
@@ -154,38 +155,6 @@
     [(L0-Set id expr) (L0-Set id (lift-expr-lambdas expr top-ids env))]
     [(? symbol? s) s]
     [other e]))
-
-(define (discover-env-ids [exprs : (Listof L0-Expr)] [top-ids : (Listof Symbol)] [env : (Listof Symbol)]) : (Listof Symbol)
-  (foldl
-   (lambda ([expr : L0-Expr] [curr : (Listof Symbol)])
-     (remove-duplicates
-      (append curr (filter (lambda ([s : Symbol]) (not (member s top-ids))) (discover-expr-env (list expr) curr)))))
-   env
-   exprs))
-; TODO: We need to make sure to carry all env needs from each lambda to nested lambdas, like if func y is nested under func x and y needs p, but func x doesnnt, we need to make x need it
-
-; We need to lift every env requirement of functions to the list of id's in params
-(define (discover-expr-env [body : (Listof L0-Expr)] [top-ids : (Listof Symbol)]) : (Listof Symbol)
-  (define dee-helper (lambda ([es : (Listof L0-Expr)]) (discover-expr-env es top-ids)))
-  (append-map
-   (lambda ([e : L0-Expr])
-     (match e
-       [(L0-Lam params body) (discover-expr-env body (append params top-ids))]
-       [(L0-LetVals ids vals body) (let ((new-known-ids (append top-ids (cast (flatten ids) (Listof Symbol)))))
-                                     (append (discover-expr-env vals new-known-ids)
-                                             (discover-expr-env body new-known-ids)))]
-       [(L0-LetRecVals ids vals body) (let ((new-known-ids (append top-ids (cast (flatten ids) (Listof Symbol)))))
-                                        (append (discover-expr-env vals new-known-ids)
-                                                (discover-expr-env body new-known-ids)))]
-       [(L0-App expr args) (append (dee-helper (list expr)) (dee-helper args))]
-       [(L0-If test t f) (append (dee-helper (list test)) (dee-helper (list t)) (dee-helper (list f)))]
-       [(L0-Begin exprs) (dee-helper exprs)]
-       [(L0-Begin0 exprs) (dee-helper exprs)]
-       [(L0-Set id expr) (dee-helper (list expr))]
-       [(? symbol? s)
-        (if (findf (lambda ([id : Symbol]) (equal? id s)) top-ids) '() (list s))]
-       [other '()]))
-   body))
 
 (define (generate-init [ast : FEP]) : FEP2
   (FEP2
