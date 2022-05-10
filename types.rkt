@@ -14,13 +14,13 @@
 ; Type definitions for global values, where a global is either a function definiton or a variable
 (define-type TopDefinition (U Func Var))
 (struct Var ([id : Symbol] [expr : L0-Expr]) #:transparent)
-(struct Func ([name : Symbol] [params : (Listof Symbol)] [body : (Listof L0-Expr)]) #:transparent)
+(struct Func ([name : Symbol] [params : (Listof Symbol)] [env : (Listof Symbol)] [body : (Listof L0-Expr)]) #:transparent)
 
 ; Intermediate Expression Representation
 (define-type L0-Expr (U L0-Lam L0-App L0-CaseLambda L0-If L0-LetVals L0-LetRecVals L0-Begin L0-Begin0 L0-Set L0-TopId L0-Value))
 (struct L0-App ([func : L0-Expr] [args : (Listof L0-Expr)]) #:transparent)
 (struct L0-Lam ([params : (Listof Symbol)] [body : (Listof L0-Expr)]) #:transparent)
-(struct L0-CaseLambda ([funcs : (Listof Func)]) #:transparent)
+(struct L0-CaseLambda ([funcs : (Listof L0-Expr)]) #:transparent)
 (struct L0-If ([test : L0-Expr] [then : L0-Expr] [else : L0-Expr]) #:transparent)
 (struct L0-LetVals ([ids : (Listof (Listof Symbol))] [val-exprs : (Listof L0-Expr)] [body : (Listof L0-Expr)]) #:transparent)
 (struct L0-LetRecVals ([ids : (Listof (Listof Symbol))] [val-exprs : (Listof L0-Expr)] [body : (Listof L0-Expr)]) #:transparent)
@@ -54,7 +54,7 @@
 (struct Call ([func : Symbol] [args : (Listof Expr)]) #:transparent)
 (struct IndirectCall ([func : Symbol] [args : (Listof Expr)]) #:transparent)
 
-(struct CaseLambda ([funcs : (Listof Func)]) #:transparent)
+(struct CaseLambda ([funcs : (Listof Expr)]) #:transparent)
 (struct If ([test : Expr] [then : Expr] [else : Expr]) #:transparent)
 (struct LetVals ([ids : (Listof (Listof Symbol))] [val-exprs : (Listof Expr)] [body : (Listof Expr)]) #:transparent)
 (struct LetRecVals ([ids : (Listof (Listof Symbol))] [val-exprs : (Listof Expr)] [body : (Listof Expr)]) #:transparent)

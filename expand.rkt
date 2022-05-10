@@ -67,7 +67,7 @@
            (p-expr (process-expr #'expr #t)))
        ; TODO: Support multiple return vals
        (if (Func? p-expr)
-           (Func (first p-ids) (Func-params p-expr) (Func-body p-expr))
+           (Func (first p-ids) (Func-params p-expr) '() (Func-body p-expr))
            (Var (first p-ids) p-expr)))]
     [(define-syntaxes (id ...) expr) (error 'unsupported)]
     [(#%require raw-require-spec ...) (error 'unsupported)]
@@ -81,13 +81,13 @@
        ; If we are defining a top level lambda then we know it is named
        ;  otherwise the function will be an unnamed lambda
        (if named?
-           (Func 'FILL_IN p-formals p-exprs)
+           (Func 'FILL_IN p-formals '() p-exprs)
            (L0-Lam p-formals p-exprs)))]
     ; TODO: Implementation is just create a dispatcher lambda and a separate lambda for each case
     ; - The dispatcher will calculate the length of the parameters provided and will call the expected lambda
     ; - We could also do this by wrapping each case in a single lambda behind if cases
     [(case-lambda (formals body) ...)
-     (CaseLambda (map (lambda (f b) (Func 'CL_TODO (process-formal f) (process-expr b)))
+     (CaseLambda (map (lambda (f b) (L0-Lam (process-formal f) (process-expr b)))
                       (stx->list #'(formals ...))
                       (stx->list #'(body ...))))]
     [(if test then else)
@@ -143,7 +143,10 @@
           [#f (syntax-e id)]
           ['lexical (syntax-e id)]
           [(list (? symbol? s)) s]
-          [(list l ...) (second l)]
+          [(list l ...) (match (second l)
+                          ['true (Int 1)]
+                          ['false (Int 0)]
+                          [other (second l)])]
           [other (error 'unknown "Unknown Symbol ~v" id)])))
 
 (define (process-quote datum)
@@ -155,7 +158,6 @@
         [(? boolean? b) (if b (Int 1) (Int 0))]
         [(? char? c) (Int (char->integer c))]
         [other (error 'unknown (~a datum))])))
-
 
 ; Borrowed from racketscript @ https://github.com/racketscript/racketscript/blob/master/racketscript-compiler/racketscript/compiler/expand.rkt
 (define (parse-provide r)
