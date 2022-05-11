@@ -86,8 +86,8 @@
               (local $__app_param_arr i32)
               (local $__clo_env_arr_helper i32)
               (local $__tmp_res i32)
-              ; Initialize param and env-param locals
-              ,@(init-locals (append params env-params))
+              ,@(init-locals params)
+              ,@(init-env-locals env-params)
               (local.set $__app_param_arr (i32.const 0))
               (local.set $__clo_env_arr_helper (i32.const 0))
               (local.set $__tmp_res (i32.const 0))
@@ -186,16 +186,10 @@
                      (define env (second id&env))
                      (cond
                         [(local? id) (list `(local.get ,(wat-name id)))]
-                        ; The param arr is just a flat array of pointers
-                        [(param? id) (list `(i32.load
-                                 (i32.add (local.get $param_arr)
-                                          (i32.mul (i32.const 4)
-                                                   (i32.const ,(index-of params id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) id))))))))]
+                       ; Every param should be assigned to a local value by now, so we don't need to dereference the param arr all the time
+                       [(param? id) (list `(local.get ,(wat-name id)))]
                         ; The env arr is just a flat array of pointers
-                        [(env? id) (list `(i32.load
-                                 (i32.add (local.get $env_arr)
-                                          (i32.mul (i32.const 4)
-                                                   (i32.const ,(index-of env-params id (lambda ([env-id : Id] [id : Symbol]) (equal? (Id-sym env-id) id))))))))]
+                       [(env? id) (list `(local.get ,(wat-name id)))]
                         [(global? id) (list `(global.get ,(wat-name id)))]
                         ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
                         [func  (let ((env-exprs (append-map (pe-helper env) (map Id-sym (Closure-env-params func)))))
@@ -230,6 +224,13 @@
   (map
    (lambda ([id : Id] [r : Real])
      `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $param_arr)))))
+   locals
+   (range (length locals))))
+
+(define (init-env-locals [locals : (Listof Id)]) : (Listof Sexp)
+  (map
+   (lambda ([id : Id] [r : Real])
+     `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $env_arr)))))
    locals
    (range (length locals))))
 
