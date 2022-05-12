@@ -135,6 +135,7 @@
          (let ((first-arg ((pe-helper env) (first args)))
                (rest-args (map (pe-helper env) (rest args))))
            `((\; Apply a first class function \;)
+             ; TODO: This will collide if nested expressions are applied
              (local.set $__tmp_res ,@first-arg)
              ,@(build-arr rest-args '$__app_param_arr)
              (i32.load (i32.add (i32.const 5) (local.get $__tmp_res)))
