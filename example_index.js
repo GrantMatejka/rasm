@@ -21,6 +21,8 @@ const my_exec = function (cmd, callback) {
 };
 
 const process_wasm = (bytes) =>
+  // To use a returned closure: obj.rasm.toJS(obj.rasm.toJS(CLOSURE)(ARGUMENTS))
+
   // obj is an instatiated WebAssembly module
   // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WebAssembly/Module
   rasm.instantiate(bytes).then((obj) => {
@@ -30,28 +32,21 @@ const process_wasm = (bytes) =>
      *
      * When working with rasm, you should only call functions from this wrapped form
      */
-    for (const funcname in obj.funcs) {
-      const func = obj.funcs[funcname];
+    for (const export_name in obj.rasm.jsTojs) {
+      const exp = obj.rasm.jsTojs[export_name];
 
-      const params = Array(func.numargs)
-        .fill(0)
-        .map((_, __) => Math.floor(Math.random() * 10));
+      // We are only calling exported functions where we know how many arguments they take
+      if (exp.numargs) {
+        const params = Array(exp.numargs)
+          .fill(0)
+          .map((_, __) => Math.floor(Math.random() * 10));
 
-      console.log(
-        `-----------------\n${funcname} called with [ ${params} ] returned: ${func(
-          ...params
-        )}`
-      );
-    }
-
-    /**
-     * `obj.vals` contains any exported global variables/constants
-     */
-    for (const value_name in obj.vals) {
-      const value = obj.vals[value_name];
-      console.log(
-        `-----------------\nExported ${value_name} with Value ${value}`
-      );
+        console.log(
+          `-----------------\n${export_name} called with [ ${params} ] returned: ${exp(
+            ...params
+          )}`
+        );
+      }
     }
   });
 

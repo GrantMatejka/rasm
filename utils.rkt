@@ -95,7 +95,7 @@
                      (func $__store_i32 (export \"__store_i32\") (param $loc i32) (param $ptr i32)
                            (i32.store (local.get $loc) (local.get $ptr)))
                      (\; Types: 0-Integer  1-Float  2-Pair  3-Function \;)
-                     (func $__allocate_int (param $val i64) (result i32) (local $ptr i32)
+                     (func $__allocate_int (export \"__allocate_int\") (param $val i64) (result i32) (local $ptr i32)
                            (local.set $ptr (call $__alloc (i32.const 8)))
                            (i32.store8 (local.get $ptr) (i32.const 0))
                            (i64.store (i32.add (i32.const 1) (local.get $ptr)) (local.get $val))
