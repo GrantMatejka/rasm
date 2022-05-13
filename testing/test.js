@@ -42,16 +42,19 @@ const testFiles = (files, expected) => {
     my_exec(
       `${copy_rasm} && ${copy_index} && ${compile_file} && ${generate_wasm}`,
       () => {
-        console.log(`Testing: ${basename}`);
         const wasm_helper = require("./rasm");
         const expected_exports = expected[basename]["exports"];
         const bytes = fs.readFileSync("out/a.wasm");
 
+        console.log(`Testing: ${basename}`);
+
         wasm_helper.instantiate(bytes).then((obj) => {
-          for (const funcname in obj.funcs) {
-            const expectations = expected_exports[funcname];
+          for (const export_name in obj.rasm.jsTojs) {
+            const expectations = expected_exports[export_name];
             if (expectations) {
-              const wasm_export = obj.funcs[funcname];
+              console.log(`|--> [${export_name}]`);
+
+              const wasm_export = obj.rasm.jsTojs[export_name];
               let result = expectations.hasOwnProperty("params")
                 ? wasm_export(...expectations["params"])
                 : wasm_export();
@@ -60,20 +63,7 @@ const testFiles = (files, expected) => {
               my_assert(
                 expected_val,
                 result,
-                `FAIL: ${funcname} -> expected ${expected_val} got ${result}`
-              );
-            }
-          }
-
-          for (const valname in obj.vals) {
-            const expectations = expected_exports[valname];
-            if (expectations) {
-              const expected_val = expectations["val"];
-              const wasm_export = obj.vals[valname];
-              my_assert(
-                expected_val,
-                wasm_export,
-                `FAIL: ${valname} -> expected ${expected_val} got ${wasm_export}`
+                `FAIL: ${export_name} -> expected ${expected_val} got ${result}`
               );
             }
           }
