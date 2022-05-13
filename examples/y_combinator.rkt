@@ -32,5 +32,4 @@
               (lambda {l} (l true))))
            (lambda {l} (equal? l empty))))
         (lambda {a b} (lambda {select} (if select a b)))))
-     13)
-    ))
+     13)))

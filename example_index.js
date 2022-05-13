@@ -58,7 +58,7 @@ const filename = process.argv[2].endsWith(".wat")
   ? process.argv[2]
   : process.argv[2].concat(".wat");
 
-my_exec(`wat2wasm ${filename} -o a.wasm`, () => {
+my_exec(`wat2wasm ${filename} --debug-names -o a.wasm`, () => {
   const fs = require("fs");
   const bytes = fs.readFileSync("./a.wasm");
 

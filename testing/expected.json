@@ -358,14 +358,6 @@
       }
     }
   },
-  "y_combinator": {
-    "exports": {
-      "ycomb": {
-        "params": [],
-        "val": 20
-      }
-    }
-  },
   "y_combinator2": {
     "exports": {
       "fact": {
@@ -379,6 +371,14 @@
           13
         ],
         "val": 6227020800
+      }
+    }
+  },
+  "y_combinator": {
+    "exports": {
+      "ycomb": {
+        "params": [],
+        "val": 20
       }
     }
   }

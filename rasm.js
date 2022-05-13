@@ -53,6 +53,21 @@ const instantiate = (bytes) => {
       // .internals holds all the secret stuff
       obj.rasm.internals = {};
 
+      // Converts a js value to a WebAssembly pointer
+      obj.rasm.toWasm = (val) => {
+        if (typeof val === "number") {
+          return obj.instance.exports.__allocate_float(val);
+        } else if (typeof val === "bigint") {
+          return obj.instance.exports.__allocate_int(val);
+        } else if (typeof val === "boolean") {
+          return val
+            ? obj.instance.exports.__allocate_int(1)
+            : obj.instance.exports.__allocate_int(0);
+        } else {
+          return -1;
+        }
+      };
+
       const mem = new Uint8Array(obj.instance.exports.memory.buffer);
       // toJS converts a WebAssembly memory pointer to its respective JS value
       obj.rasm.toJS = (ptr) => {
@@ -72,12 +87,8 @@ const instantiate = (bytes) => {
             return val.toString();
           case 3: // closure
             val = function (...params) {
-              // TODO: It is not allowed to pass JavaScript functions to WebAssembly
               const arg_ptrs = params.map((p) => {
-                // All numbers in javascript are 64-bit floats
-                if (typeof p === "number") {
-                  return obj.instance.exports.__allocate_float(p);
-                }
+                return obj.rasm.toWasm(p);
               });
 
               const param_list_ptr = allocateParamList(
@@ -90,21 +101,6 @@ const instantiate = (bytes) => {
             return val;
           default:
             return -1;
-        }
-      };
-
-      // Converts a js value to a WebAssembly pointer
-      obj.rasm.toWasm = (val) => {
-        if (typeof val === "number") {
-          return obj.instance.exports.__allocate_float(val);
-        } else if (typeof val === "bigint") {
-          return obj.instance.exports.__allocate_int(val);
-        } else if (typeof val === "boolean") {
-          return val
-            ? obj.instance.exports.__allocate_int(1)
-            : obj.instance.exports.__allocate_int(0);
-        } else {
-          return -1;
         }
       };
 
