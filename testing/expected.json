@@ -190,7 +190,8 @@
       },
       "add": {
         "params": [
-          33, 44
+          33,
+          44
         ],
         "val": 77
       }
@@ -313,6 +314,55 @@
     "exports": {
       "test": {
         "val": 33
+      }
+    }
+  },
+  "recursion": {
+    "exports": {
+      "add-fact": {
+        "params": [
+          5,
+          10
+        ],
+        "val": 3628920
+      }
+    }
+  },
+  "func_as_arg": {
+    "exports": {
+      "func": {
+        "params": [
+          5
+        ],
+        "val": 6
+      }
+    }
+  },
+  "func_as_arg2": {
+    "exports": {
+      "add-fact": {
+        "params": [
+          5
+        ],
+        "val": 6
+      }
+    }
+  },
+  "func_as_arg3": {
+    "exports": {
+      "add-fact": {
+        "params": [
+          10
+        ],
+        "val": 11
+      }
+    }
+  },
+  "y_combinator": {
+    "exports": {
+      "ycomb": {
+        "params": [],
+        "val": 20
       }
     }
   },

@@ -84,7 +84,7 @@ const instantiate = (bytes) => {
                 obj.instance.exports,
                 arg_ptrs
               );
-
+              
               return obj.instance.exports.__app(ptr, param_list_ptr);
             };
             return val;
@@ -126,10 +126,12 @@ const instantiate = (bytes) => {
         } else if (typeof wasm_export === "function") {
           // wasm ptrs => wasm ptrs
           obj.rasm.wasmTowasm[wasm_export_name] = (...param_ptrs) =>
-            wasm_export(allocateParamList(param_ptrs));
+            wasm_export(allocateParamList(obj.instance.exports, param_ptrs));
           // wasm ptrs => js values
           obj.rasm.wasmTojs[wasm_export_name] = (...param_ptrs) =>
-            obj.rasm.toJS(wasm_export(allocateParamList(param_ptrs)));
+            obj.rasm.toJS(
+              wasm_export(allocateParamList(obj.instance.exports, param_ptrs))
+            );
 
           const wrapped = wrapFunctionExport(
             wasm_export,
@@ -137,8 +139,7 @@ const instantiate = (bytes) => {
             obj.instance.exports
           );
 
-          const wrappedToJS = (...params) =>
-            obj.rasm.toJS(wrapped(...params));
+          const wrappedToJS = (...params) => obj.rasm.toJS(wrapped(...params));
           wrappedToJS.numargs = wrapped.numargs;
           wrappedToJS.length = wrapped.length;
 
@@ -155,7 +156,7 @@ const instantiate = (bytes) => {
                 case 3:
                   return obj.instance.exports.__app(
                     wasm_export.value,
-                    allocateParamList(params)
+                    allocateParamList(obj.instance.exports, params)
                   );
                 default:
                   return val;
@@ -170,7 +171,7 @@ const instantiate = (bytes) => {
                   return obj.rasm.toJS(
                     obj.instance.exports.__app(
                       wasm_export.value,
-                      allocateParamList(params)
+                      allocateParamList(obj.instance.exports, params)
                     )
                   );
                 default:
