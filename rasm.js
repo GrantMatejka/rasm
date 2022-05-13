@@ -76,7 +76,7 @@ const instantiate = (bytes) => {
               const arg_ptrs = params.map((p) => {
                 // All numbers in javascript are 64-bit floats
                 if (typeof p === "number") {
-                  return obj_exports.__allocate_float(p);
+                  return obj.instance.exports.__allocate_float(p);
                 }
               });
 
