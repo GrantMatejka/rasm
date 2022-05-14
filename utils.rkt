@@ -124,7 +124,7 @@
                                      (\; Pointer to function env \;)
                                      (i32.load (i32.add (i32.const 5) (local.get $func_ptr)))
                                      (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get $func_ptr)))))
-                               (else (i32.const -1))))
+                               (else (unreachable))))
                      (func $__list_ref (param $root_ptr i32) (param $idx i32) (result i32)
                            (local $curr_ptr i32)
                            (local.set $curr_ptr (local.get $root_ptr))
