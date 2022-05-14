@@ -9,7 +9,6 @@ message: >-
 type: software
 authors:
   - given-names: Grant
-    name-particle: S
     family-names: Matejka
     email: grantmatejka1@gmail.com
     affiliation: Cal Poly SLO
