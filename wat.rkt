@@ -148,7 +148,7 @@
        `((\; Preparing to Call ,fn \;)
          (\; Build function\'s parameter list \;)
          ,@(build-arr p-args '$__app_param_arr)
-         (\; Retrieve Function's env \;)
+         (\; Retrieve Function\'s env \;)
          (i32.load (i32.add (i32.const 5) ,@p-fn))
          (\; Calling ,fn \;)
          (call_indirect (type $__function_type)
@@ -199,7 +199,8 @@
                        [(global? id) (list `(global.get ,(wat-name id)))]
                        ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
                        [func  (let ((env-exprs (map (pe-helper env) (map Id-sym (Closure-env-params func)))))
-                                `((call $__allocate_func (i32.const ,(hash-ref func-table id))
+                                `((\; Allocating func ,id \;)
+                                  (call $__allocate_func (i32.const ,(hash-ref func-table id))
                                         ,@(build-arr env-exprs '$__clo_env_arr_helper))))]
                        [else (error 'unknown "ERROR: Unknown Id ~v ~a ~a ~a ~a" id globals params env-params locals)]))]
     [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
