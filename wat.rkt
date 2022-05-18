@@ -74,24 +74,27 @@
   (let ((globals (Module-globals mod))
         (exports (Module-exports mod))
         (funcs (Module-funcs mod)))
+    (set! tmps '())
     ; At this point the only top level/non-global variable definitions we have are the functions themselves
     (match clo
       [(Closure fn params env-params locals body)
-       `(func ,(wat-name fn)
-              ,@(export? fn exports)
-              ,@(if (equal? fn 'init) '() (list '(param $param_arr i32) '(param $env_arr i32)))
-              ,@(if (equal? fn 'init) '() (list `(result i32)))
-              ,@(build-locals (map Id-sym (append locals params env-params)))
-              ; Every function relies on these helper vars
-              (local $__app_param_arr i32)
-              (local $__clo_env_arr_helper i32)
-              (local $__tmp_res i32)
-              ,@(init-locals params)
-              ,@(init-env-locals env-params)
-              (local.set $__app_param_arr (i32.const 0))
-              (local.set $__clo_env_arr_helper (i32.const 0))
-              (local.set $__tmp_res (i32.const 0))
-              ,@(process-func-body globals env-params params locals funcs body))]
+       (let ((body (process-func-body globals env-params params locals funcs body)))
+         `(func ,(wat-name fn)
+                ,@(export? fn exports)
+                ,@(if (equal? fn 'init) '() (list '(param $param_arr i32) '(param $env_arr i32)))
+                ,@(if (equal? fn 'init) '() (list `(result i32)))
+                ,@(build-locals (append (map Id-sym (append locals params env-params))
+                                        tmps))
+                ; Every function relies on these helper vars
+                (local $__app_param_arr i32)
+                (local $__clo_env_arr_helper i32)
+                (local $__tmp_res i32)
+                ,@(init-locals params)
+                ,@(init-env-locals env-params)
+                (local.set $__app_param_arr (i32.const 0))
+                (local.set $__clo_env_arr_helper (i32.const 0))
+                ,@(init-tmps tmps)
+                ,@body))]
       [other (error 'unsupported (~a clo))])))
 
 (define (process-func-body [globals : (Listof Id)]
@@ -133,13 +136,15 @@
      ; TODO: See if we can combine these
      (if (equal? fn '__app)
          (let ((first-arg ((pe-helper env) (first args)))
-               (rest-args (map (pe-helper env) (rest args))))
+               (rest-args (map (pe-helper env) (rest args)))
+               (tmp-var (g&i-tmp-res)))
            `((\; Apply a first class function \;)
              ; TODO: This will collide if nested expressions are applied
-             (local.set $__tmp_res ,@first-arg)
-             ,@(build-arr rest-args '$__app_param_arr)
-             (i32.load (i32.add (i32.const 5) (local.get $__tmp_res)))
-             (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get $__tmp_res))))))
+             #;(local.set ,(wat-name tmp-var) ,@first-arg)
+             
+             (call $__app ,@first-arg ,@(build-arr rest-args '__app_param_arr))
+             #;(i32.load (i32.add (i32.const 5) (local.get ,(wat-name tmp-var))))
+             #;(call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get ,(wat-name tmp-var)))))))
          (list `(call ,(wat-name (hash-ref prims fn))
                       ,@(append-map (pe-helper env) args))))]
     [(IndirectCall fn args)
@@ -147,7 +152,7 @@
            (p-args (map (pe-helper env) args)))
        `((\; Preparing to Call ,fn \;)
          (\; Build function\'s parameter list \;)
-         ,@(build-arr p-args '$__app_param_arr)
+         ,@(build-arr p-args '__app_param_arr)
          (\; Retrieve Function\'s env \;)
          (i32.load (i32.add (i32.const 5) ,@p-fn))
          (\; Calling ,fn \;)
@@ -201,21 +206,22 @@
                        [func  (let ((env-exprs (map (pe-helper env) (map Id-sym (Closure-env-params func)))))
                                 `((\; Allocating func ,id \;)
                                   (call $__allocate_func (i32.const ,(hash-ref func-table id))
-                                        ,@(build-arr env-exprs '$__clo_env_arr_helper))))]
+                                        ,@(build-arr env-exprs '__clo_env_arr_helper))))]
                        [else (error 'unknown "ERROR: Unknown Id ~v ~a ~a ~a ~a" id globals params env-params locals)]))]
     [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
     [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))
 
 
-(define (build-arr [exprs : (Listof (Listof Sexp))] [list-name : (U '$__app_param_arr '$__clo_env_arr_helper)]) : (Listof Sexp)
-  `((local.set ,list-name (call $__alloc (i32.const ,(* 4 (length exprs)))))
+(define (build-arr [exprs : (Listof (Listof Sexp))] [list-name : (U '__app_param_arr '__clo_env_arr_helper)]) : (Listof Sexp)
+  (let ((unique-ln (unique list-name)))
+    `((local.set ,(wat-name unique-ln) (call $__alloc (i32.const ,(* 4 (length exprs)))))
     ,@(map
        (lambda ([src : Sexp] [r : Real])
-         `(i32.store (i32.add (i32.const ,(* (real->int r) 4)) (local.get ,list-name)) ,@src))
+         `(i32.store (i32.add (i32.const ,(* (real->int r) 4)) (local.get ,(wat-name unique-ln))) ,@src))
        exprs
        (range (length exprs)))
-    (local.get ,list-name)))
+    (local.get ,(wat-name unique-ln)))))
 
 ; TODO: Actually handle exports, but low priority
 (define (export? [fn : Symbol] [exports : (Listof Provide)]) : (Listof Sexp)
@@ -223,6 +229,21 @@
              exports)
       (list `(export ,(~a '\" fn '\")))
       '()))
+
+(define tmp 0)
+(define tmps : (Listof Symbol) '())
+(define (g&i-tmp-res)
+  (let ((tmp-res (string->symbol (~a "__tmp_res" tmp))))
+    (set! tmp (add1 tmp))
+    (set! tmps (cons tmp-res tmps))
+    tmp-res))
+
+(define (unique [n : Symbol]) : Symbol
+  (let ((tmp-name (string->symbol (~a n tmp))))
+    (set! tmp (add1 tmp))
+    (set! tmps (cons tmp-name tmps))
+    tmp-name))
+
 
 (define (build-locals [locals : (Listof Symbol)]) : (Listof Sexp)
   (map (lambda ([l : Symbol]) `(local ,(wat-name l) i32)) locals))
@@ -233,6 +254,12 @@
      `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $param_arr)))))
    locals
    (range (length locals))))
+
+(define (init-tmps [tmps : (Listof Symbol)]) : (Listof Sexp)
+  (map
+   (lambda ([id : Symbol])
+     `(local.set ,(wat-name id) (i32.const 0)))
+   tmps))
 
 (define (init-env-locals [locals : (Listof Id)]) : (Listof Sexp)
   (map
