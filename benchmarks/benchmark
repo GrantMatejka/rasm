@@ -1,0 +1,14 @@
+cp ../rasm.js .
+cp ../example_index.js .
+racket ../compiler.rkt ../examples/$1.rkt
+
+echo "### Benchmarking $1 WebAssembly"
+cp out/$1.wat .
+wat2wasm $1.wat -o a.wasm
+hyperfine --warmup 5 "node benchmark.js"
+rm $1.wat
+rm a.wasm
+
+echo "### Benchmarking $1 Racket"
+raco exe -o a.out ../examples/$1.rkt
+hyperfine --warmup 5 "./a.out"
