@@ -1,7 +1,7 @@
 (module simple_arithmetic racket
   (provide add1 sub1 mul1 div1
            add2 sub2 mul2 div2
-           add3 sub3 mul3 div3)
+           add3 sub3 mul3 div3 div4 div5 div6 div7)
   (define add1 (+ 41234 4508))
   (define add2 (+ 4.5 10.2))
   (define add3 (+ 4.5 4))

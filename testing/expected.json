@@ -340,7 +340,7 @@
   },
   "func_as_arg2": {
     "exports": {
-      "add-fact": {
+      "func": {
         "params": [
           5
         ],
@@ -350,7 +350,7 @@
   },
   "func_as_arg3": {
     "exports": {
-      "add-fact": {
+      "func": {
         "params": [
           10
         ],
@@ -367,6 +367,36 @@
         "val": 6227020800
       },
       "fact2": {
+        "params": [
+          13
+        ],
+        "val": 6227020800
+      }
+    }
+  },
+  "y_combinator3": {
+    "exports": {
+      "fact": {
+        "params": [
+          13
+        ],
+        "val": 6227020800
+      }
+    }
+  },
+  "y_combinator4": {
+    "exports": {
+      "fact": {
+        "params": [
+          13
+        ],
+        "val": 6227020800
+      }
+    }
+  },
+  "y_combinator5": {
+    "exports": {
+      "fact": {
         "params": [
           13
         ],

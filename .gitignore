@@ -10,3 +10,7 @@ compiled/
 testing/out/
 testing/rasm.js
 testing/example_index.js
+
+benchmarks/example_index.js
+benchmarks/rasm.js
+benchmarks/a.out
