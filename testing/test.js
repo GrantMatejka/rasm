@@ -49,23 +49,21 @@ const testFiles = (files, expected) => {
         console.log(`Testing: ${basename}`);
 
         wasm_helper.instantiate(bytes).then((obj) => {
-          for (const export_name in obj.rasm.jsTojs) {
+          for (const export_name in expected_exports) {
             const expectations = expected_exports[export_name];
-            if (expectations) {
-              console.log(`|--> [${export_name}]`);
+            console.log(`|--> [${export_name}]`);
 
-              const wasm_export = obj.rasm.jsTojs[export_name];
-              let result = expectations.hasOwnProperty("params")
-                ? wasm_export(...expectations["params"])
-                : wasm_export();
+            const wasm_export = obj.rasm.jsTojs[export_name];
+            let result = expectations.hasOwnProperty("params")
+              ? wasm_export(...expectations["params"])
+              : wasm_export();
 
-              const expected_val = expectations["val"];
-              my_assert(
-                expected_val,
-                result,
-                `FAIL: ${export_name} -> expected ${expected_val} got ${result}`
-              );
-            }
+            const expected_val = expectations["val"];
+            my_assert(
+              expected_val,
+              result,
+              `FAIL: ${export_name} -> expected ${expected_val} got ${result}`
+            );
           }
         });
       }
