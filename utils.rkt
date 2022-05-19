@@ -31,7 +31,11 @@
                '<= '__le
                '>= '__ge
                'equal? '__eq
-               '__app '__app))
+               '= '__eq
+               '__app '__app
+               'cons '__cons
+               'car '__car
+               'cdr '__cdr))
 
 
 
@@ -124,6 +128,16 @@
                                      (\; Pointer to function env \;)
                                      (i32.load (i32.add (i32.const 5) (local.get $func_ptr)))
                                      (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get $func_ptr)))))
+                               (else (unreachable))))
+                     (func $__cons (param $ptr1 i32) (param $ptr2 i32) (result i32)
+                           (call $__allocate_pair (local.get $ptr1) (local.get $ptr2)))
+                     (func $__car (param $ptr i32) (result i32)
+                           (if (result i32) (i32.eq (i32.const 2) (i32.load8_u (local.get $ptr)))
+                               (then (i32.load (i32.add (i32.const 1) (local.get $ptr))))
+                               (else (unreachable))))
+                     (func $__cdr (param $ptr i32) (result i32)
+                           (if (result i32) (i32.eq (i32.const 2) (i32.load8_u (local.get $ptr)))
+                               (then (i32.load (i32.add (i32.const 5) (local.get $ptr))))
                                (else (unreachable))))
                      (func $__list_ref (param $root_ptr i32) (param $idx i32) (result i32)
                            (local $curr_ptr i32)
