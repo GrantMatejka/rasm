@@ -140,12 +140,7 @@
                (rest-args (map (pe-helper env) (rest args)))
                (tmp-var (g&i-tmp-res)))
            `((\; Apply a first class function \;)
-             ; TODO: This will collide if nested expressions are applied
-             #;(local.set ,(wat-name tmp-var) ,@first-arg)
-             
-             (call $__app ,@first-arg ,@(build-arr rest-args '__app_param_arr))
-             #;(i32.load (i32.add (i32.const 5) (local.get ,(wat-name tmp-var))))
-             #;(call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get ,(wat-name tmp-var)))))))
+             (call $__app ,@first-arg ,@(build-arr rest-args '__app_param_arr))))
          (list `(call ,(wat-name (hash-ref prims fn))
                       ,@(append-map (pe-helper env) args))))]
     [(IndirectCall fn args)
@@ -161,6 +156,22 @@
                         ,(if (hash-has-key? func-table fn)
                              `(i32.const ,(hash-ref func-table fn))
                              `(i32.load (i32.add (i32.const 1) ,@p-fn))))))]
+    [(CaseLambda func-names)
+     (let ((funcdefs (filter-map (lambda ([fn : Symbol])
+                                   (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) fn)) funcs))
+                                 func-names)))
+       (let ((p-len (wat-name (g&i-tmp-res)))
+             (p-idx (wat-name (g&i-tmp-res))))
+         `((block
+            (loop
+             (i32.eqz (i32.load (i32.add (local.get ,p-idx) (local.get $param_arr))))
+             (br_if 1) ;; break
+             ;; increment p-len
+             (local.set ,p-len (i32.add (i32.const 1) (local.get ,p-len)))
+             (local.set ,p-idx (i32.add (i32.const 4) (local.get ,p-idx)))
+             (br 0)
+             ))
+           ,@(build-cl-checks (pe-helper env) p-len funcdefs))))]
     [(If test t f)
      (list `(if (result i32) (i64.eqz (i64.load (i32.add (i32.const 1) ,@((pe-helper env) test))))
                 ; Since we are checking the conditional for eqz we need to reverse the conditions
@@ -221,14 +232,14 @@
 (define (build-arr [exprs : (Listof (Listof Sexp))] [list-name : (U '__app_param_arr '__clo_env_arr_helper)]) : (Listof Sexp)
   (let ((unique-ln (unique list-name)))
     `((local.set ,(wat-name unique-ln) (call $__alloc (i32.const ,(* 4 (add1 (length exprs))))))
-    ,@(map
-       (lambda ([src : Sexp] [r : Real])
-         `(i32.store (i32.add (i32.const ,(* 4 (real->int r))) (local.get ,(wat-name unique-ln))) ,@src))
-       exprs
-       (range (length exprs)))
-    ;; zero terminate our array
-    (i32.store (i32.add (i32.const ,(* 4 (length exprs))) (local.get ,(wat-name unique-ln))) (i32.const 0))
-    (local.get ,(wat-name unique-ln)))))
+      ,@(map
+         (lambda ([src : Sexp] [r : Real])
+           `(i32.store (i32.add (i32.const ,(* 4 (real->int r))) (local.get ,(wat-name unique-ln))) ,@src))
+         exprs
+         (range (length exprs)))
+      ;; zero terminate our array
+      (i32.store (i32.add (i32.const ,(* 4 (length exprs))) (local.get ,(wat-name unique-ln))) (i32.const 0))
+      (local.get ,(wat-name unique-ln)))))
 
 ; TODO: Actually handle exports, but low priority
 (define (export? [fn : Symbol] [exports : (Listof Provide)]) : (Listof Sexp)
@@ -269,7 +280,7 @@
   (map
    (lambda ([id : Symbol])
      `(local.set ,(wat-name id) (i32.const 0)))
-   tmps))
+   (remove-duplicates tmps)))
 
 (define (init-env-locals [locals : (Listof Id)]) : (Listof Sexp)
   (map
@@ -277,6 +288,35 @@
      `(local.set ,(wat-name (Id-sym id)) (i32.load (i32.add (i32.const ,(* (real->int r) 4)) (local.get $env_arr)))))
    locals
    (range (length locals))))
+
+(define (build-cl-checks [s->e : (-> Expr (Listof Sexp))] [len : Symbol] [funcs : (Listof Closure)]) : (Listof Sexp)
+  (let ((func (first funcs)))
+    (if (equal? 1 (length funcs))
+        `((if (result i32) (i32.eq (local.get ,len) (i32.const ,(length (Closure-params func))))
+              (then
+               (local.get $param_arr)
+               ,@(build-arr (map s->e (map Id-sym (Closure-env-params func))) '__clo_env_arr_helper)
+               (call_indirect (type $__function_type) (i32.const ,(hash-ref func-table (Closure-name func)))))
+              (else (i32.const -1))))
+        `((if (result i32) (i32.eq (local.get ,len) (i32.const ,(length (Closure-params func))))
+              (then
+               (local.get $param_arr)
+               ,@(build-arr (map s->e (map Id-sym (Closure-env-params func))) '__clo_env_arr_helper)
+               (call_indirect (type $__function_type) (i32.const ,(hash-ref func-table (Closure-name func)))))
+              (else ,@(build-cl-checks-helper s->e len (rest funcs))))))))
+
+(define (build-cl-checks-helper [s->e : (-> Expr (Listof Sexp))] [len : Symbol] [funcs : (Listof Closure)]) : (Listof Sexp)
+  (let ((func (first funcs)))
+    (if (empty? (rest funcs))
+        `((local.get $param_arr)
+          ,@(build-arr (map s->e (map Id-sym (Closure-env-params func))) '__clo_env_arr_helper)
+          (call_indirect (type $__function_type) (i32.const ,(hash-ref func-table (Closure-name func)))))
+        `((if (result i32) (i32.eq (local.get ,len) (i32.const ,(length (Closure-params func))))
+              (then
+               (local.get $param_arr)
+               ,@(build-arr (map s->e (map Id-sym (Closure-env-params func))) '__clo_env_arr_helper)
+               (call_indirect (type $__function_type) (i32.const ,(hash-ref func-table (Closure-name func)))))
+              (else ,@(build-cl-checks-helper s->e len (rest funcs))))))))
 
 (define (wat-name [id : Symbol]) : Symbol
   (string->symbol (~a "$" id)))

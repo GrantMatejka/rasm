@@ -134,6 +134,14 @@
            (new-env (append params env)))
        (set! LAMBDAS (cons (Func name params env (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) body)) LAMBDAS))
        name)]
+    [(L0-CaseLambda funcs)
+     (let ((name (gensym '__lambda))
+           (new-env env))
+       (set! LAMBDAS (cons (Func name '() env
+                                 (list (L0-CaseLambda
+                                        (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) funcs))))
+                           LAMBDAS))
+       name)]
     ; TODO: Add ids to known-ids and remove them from unknown ids
     [(L0-LetVals ids vals body)
      (let ((new-env (append env (cast (flatten ids) (Listof Symbol)))))
@@ -148,7 +156,6 @@
                       (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) body)))]
     ; If we are ever applying an expression, make it a closure
     [(L0-App expr args) (L0-App (lift-expr-lambdas expr top-ids env) (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids env)) args))]
-    [(L0-CaseLambda funcs) (L0-CaseLambda (map (lambda ([f : L0-Expr]) (lift-expr-lambdas f top-ids env)) funcs))]
     [(L0-If test t f) (L0-If (lift-expr-lambdas test top-ids env) (lift-expr-lambdas t top-ids env) (lift-expr-lambdas f top-ids env))]
     [(L0-Begin exprs) (L0-Begin (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids env)) exprs))]
     [(L0-Begin0 exprs) (L0-Begin0 (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids env)) exprs))]
@@ -203,7 +210,7 @@
                              ; lambda
                              (IndirectCall fn p-args))]
          [other (Call '__app (append (list (L0-expr->Expr fn)) p-args))]))]
-    [(L0-CaseLambda funcs) (CaseLambda (map L0-expr->Expr funcs))]
+    [(L0-CaseLambda funcs) (CaseLambda (filter-map (lambda ([e : L0-Expr]) (if (symbol? e) e #f)) funcs))]
     [(L0-If test t f) (If (L0-expr->Expr test) (L0-expr->Expr t) (L0-expr->Expr f))]
     [(L0-Begin exprs) (Begin (map L0-expr->Expr exprs))]
     [(L0-Begin0 exprs) (Begin0 (map L0-expr->Expr exprs))]
@@ -305,6 +312,7 @@
     [(LetRecVals ids vals body) (expr->type (last body))]
     [(Call fn args) 'i32]
     [(IndirectCall fn args) 'i32]
+    [(CaseLambda lams) 'i32]
     [(If test t f) (let ((t-type (expr->type t))
                          (f-type (expr->type f)))
                      (if (not (equal? t-type f-type))

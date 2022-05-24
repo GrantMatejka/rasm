@@ -86,10 +86,10 @@
     ; TODO: Implementation is just create a dispatcher lambda and a separate lambda for each case
     ; - The dispatcher will calculate the length of the parameters provided and will call the expected lambda
     ; - We could also do this by wrapping each case in a single lambda behind if cases
-    [(case-lambda (formals body) ...)
-     (CaseLambda (map (lambda (f b) (L0-Lam (process-formal f) (process-expr b)))
+    [(case-lambda (formals body ...) ...)
+     (L0-CaseLambda (map (lambda (f b) (L0-Lam (process-formal f) (filter-map process-expr (stx->list b))))
                       (stx->list #'(formals ...))
-                      (stx->list #'(body ...))))]
+                      (stx->list #'((body ...) ...))))]
     [(if test then else)
      (let ((p-test (process-expr #'test))
            (p-then (process-expr #'then))
@@ -154,7 +154,7 @@
       '()
       (match (syntax-e datum)
         [(? real? r) (Float r)]
-        [(? integer? r) (Int r)]
+        [(? exact-integer? r) (Int r)]
         [(? boolean? b) (if b (Int 1) (Int 0))]
         [(? char? c) (Int (char->integer c))]
         [other (error 'unknown (~a datum))])))
