@@ -1,4 +1,4 @@
-(module add racket
+(module condtest racket
   (provide mycond)
   
   (define mycond (lambda (x)

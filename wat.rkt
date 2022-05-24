@@ -89,6 +89,7 @@
                 (local $__app_param_arr i32)
                 (local $__clo_env_arr_helper i32)
                 (local $__tmp_res i32)
+                ,@(if (equal? fn 'init) (init-globals (map Id-sym globals)) '())
                 ,@(init-locals params)
                 ,@(init-env-locals env-params)
                 (local.set $__app_param_arr (i32.const 0))
@@ -179,10 +180,14 @@
     [(Begin exprs)
      (append-map (pe-helper env) exprs)]
     ; TODO: For set, should w ebe changing the pointer or the value at the ptr???
-    [(Set id expr) (let ((p-expr ((pe-helper env) expr)))
-                     (if (findf (lambda ([i : Symbol]) (equal? i id)) (map Id-sym globals))
-                         (list `(global.set ,(wat-name id) ,@p-expr))
-                         (list `(local.set ,(wat-name id) ,@p-expr))))]
+    [(Set id expr) (let ((p-expr ((pe-helper env) expr))
+                         (getter (if (findf (lambda ([i : Symbol]) (equal? i id)) (map Id-sym globals))
+                                     `(global.get ,(wat-name id))
+                                     `(local.get ,(wat-name id))))
+                         (tmp (wat-name (g&i-tmp-res))))
+                     `((local.set ,tmp ,@p-expr)
+                       (i32.store8 ,getter (i32.load8_u (local.get ,tmp)))
+                       (i64.store (i32.add (i32.const 1) ,getter) (i64.load (i32.add (i32.const 1) (local.get ,tmp))))))]
     [(TopId id) (if (global? id)
                     (list `(global.get ,(wat-name id)))
                     (error 'top-id "Cannot find expected global id ~a" id))]
@@ -215,12 +220,14 @@
 
 (define (build-arr [exprs : (Listof (Listof Sexp))] [list-name : (U '__app_param_arr '__clo_env_arr_helper)]) : (Listof Sexp)
   (let ((unique-ln (unique list-name)))
-    `((local.set ,(wat-name unique-ln) (call $__alloc (i32.const ,(* 4 (length exprs)))))
+    `((local.set ,(wat-name unique-ln) (call $__alloc (i32.const ,(* 4 (add1 (length exprs))))))
     ,@(map
        (lambda ([src : Sexp] [r : Real])
-         `(i32.store (i32.add (i32.const ,(* (real->int r) 4)) (local.get ,(wat-name unique-ln))) ,@src))
+         `(i32.store (i32.add (i32.const ,(* 4 (real->int r))) (local.get ,(wat-name unique-ln))) ,@src))
        exprs
        (range (length exprs)))
+    ;; zero terminate our array
+    (i32.store (i32.add (i32.const ,(* 4 (length exprs))) (local.get ,(wat-name unique-ln))) (i32.const 0))
     (local.get ,(wat-name unique-ln)))))
 
 ; TODO: Actually handle exports, but low priority
@@ -247,6 +254,9 @@
 
 (define (build-locals [locals : (Listof Symbol)]) : (Listof Sexp)
   (map (lambda ([l : Symbol]) `(local ,(wat-name l) i32)) locals))
+
+(define (init-globals [globals : (Listof Symbol)]) : (Listof Sexp)
+  (map (lambda ([l : Symbol]) `(global.set ,(wat-name l) (call $__allocate_int (i64.const 0)))) globals))
 
 (define (init-locals [locals : (Listof Id)]) : (Listof Sexp)
   (map

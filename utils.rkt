@@ -104,7 +104,6 @@
                            (i32.store8 (local.get $ptr) (i32.const 0))
                            (i64.store (i32.add (i32.const 1) (local.get $ptr)) (local.get $val))
                            (local.get $ptr))
-                     (\; Need to make sure we always run with --experimental-wasm-bigint as shown by v8 team \;)
                      (func $__allocate_float (export \"__allocate_float\") (param $val f64) (result i32) (local $ptr i32)
                            (local.set $ptr (call $__alloc (i32.const 8)))
                            (i32.store8 (local.get $ptr) (i32.const 1))
