@@ -150,7 +150,7 @@
       }
     }
   },
-  "big": {
+  "arithmetic_funcs": {
     "exports": {
       "tmp": {
         "val": 3
