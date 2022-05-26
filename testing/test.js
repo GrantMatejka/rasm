@@ -1,12 +1,11 @@
 const fs = require("fs");
 const exec = require("child_process").exec;
 const assert = require("assert");
+const { test_cases } = require("./test_cases");
+var wabt = require("wabt")();
+const rasm = require("./rasm");
 
-assert.equal(process.argv.length, 3, "Expected use: node test.js <filename>");
-
-const expected = JSON.parse(fs.readFileSync("./expected.json"));
-
-const my_exec = function (cmd, callback) {
+const my_exec = (cmd, callback) => {
   exec(cmd, (error, stdout, stderr) => {
     if (error) {
       console.error(`error: ${error.message}`);
@@ -29,53 +28,42 @@ const my_assert = (want, got, msg) => {
   assert.ok(want - epsilon < got && want + epsilon > got, msg);
 };
 
-const testFiles = (files, expected) => {
-  files.forEach((basename) => {
+const copy_rasm = `cp ../rasm.js .`;
+const copy_index = `cp ../example_index.js .`;
+const make_compiler = `raco make ../compiler.rkt`;
+
+my_exec(`${copy_rasm} && ${copy_index} && ${make_compiler}`, () =>
+  test_cases.forEach((test) => {
+    const basename = test.basename;
     const rkt_path = `../examples/${basename}.rkt`;
-    const out_path = `out/${basename}.wat`;
 
-    const copy_rasm = `cp ../rasm.js .`;
-    const copy_index = `cp ../example_index.js .`;
     const compile_file = `racket ../compiler.rkt ${rkt_path}`;
-    const generate_wasm = `wat2wasm ${out_path} -o out/a.wasm`;
 
-    my_exec(
-      `${copy_rasm} && ${copy_index} && ${compile_file} && ${generate_wasm}`,
-      () => {
-        const wasm_helper = require("./rasm");
-        const expected_exports = expected[basename]["exports"];
-        const bytes = fs.readFileSync("out/a.wasm");
+    my_exec(`${compile_file}`, () => {
+      console.log(`Test Case: ${basename}`);
 
-        console.log(`Testing: ${basename}`);
+      const inputWat = `out/${basename}.wat`;
+      wabt.then((wabt) => {
+        var wasmModule = wabt.parseWat(
+          inputWat,
+          fs.readFileSync(inputWat, "utf8")
+        );
 
-        wasm_helper.instantiate(bytes).then((obj) => {
-          for (const export_name in expected_exports) {
-            const expectations = expected_exports[export_name];
-            console.log(`|--> [${export_name}]`);
-
-            const wasm_export = obj.rasm.jsTojs[export_name];
-            let result = expectations.hasOwnProperty("params")
-              ? wasm_export(...expectations["params"])
-              : wasm_export();
-
-            const expected_val = expectations["val"];
+        rasm.instantiate(wasmModule.toBinary({}).buffer).then((obj) => {
+          if (test.callback) {
+            const val = test.callback(obj);
+            my_assert(test.expected, val, test.description);
+          } else if (test.export) {
+            const params = test.params ? test.params : [];
+            const val = obj.rasm.jsTojs[test.export](...params);
             my_assert(
-              expected_val,
-              result,
-              `FAIL: ${export_name} -> expected ${expected_val} got ${result}`
+              test.expected,
+              val,
+              `${test.export}: ${test.description}`
             );
           }
         });
-      }
-    );
-  });
-};
-
-let files = [];
-if (process.argv[2] === "all") {
-  files = Object.keys(expected);
-  my_exec(`raco make ../compiler.rkt`, () => testFiles(files, expected));
-} else {
-  files.push(process.argv[2]);
-  testFiles(files, expected);
-}
+      });
+    });
+  })
+);

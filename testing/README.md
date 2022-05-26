@@ -1,6 +1,7 @@
 ## Running Tests
 
-To run `node test.js <basename of file to test>` or `node test.js all` to run all tests
+To run test cases `node test.js`.
 
-To compare against an expected result, add a JSON entry into the `expected.json` file for the desired file and export.
+Relies on `wabt` npm package, so make sure to `npm install`.
 
+Add any additional test cases in `test_cases.js`.
