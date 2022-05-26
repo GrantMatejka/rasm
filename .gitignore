@@ -13,6 +13,4 @@ testing/example_index.js
 testing/node_modules
 testing/package-lock.json
 
-benchmarks/example_index.js
-benchmarks/rasm.js
-benchmarks/a.out
+benchmarks/
