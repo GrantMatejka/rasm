@@ -45,15 +45,16 @@
      ,@wat-stdlib))
 
 (define (build-functable [mod : Module]) : (Listof Sexp)
-  (let ((funcs (filter (lambda ([c : Closure]) (not (equal? (Closure-name c) 'init))) (Module-funcs mod))))
-    `((table $tbl ,(length funcs) funcref)
+  (let ((func-names (filter (lambda ([s : Symbol]) (not (equal? s 'init))) (append (map Closure-name (Module-funcs mod))
+                                                                                   (hash-values prims)))))
+    `((table $tbl ,(length func-names) funcref)
       (export \"table\" (table $tbl))
       (elem (i32.const 0)
-            ,@(map (lambda ([clo : Closure] [idx : Real])
-                     (hash-set! func-table (Closure-name clo) (real->int idx))
-                     (wat-name (Closure-name clo)))
-                   funcs
-                   (range (length funcs)))))))
+            ,@(map (lambda ([fn : Symbol] [idx : Real])
+                     (hash-set! func-table fn (real->int idx))
+                     (wat-name fn))
+                   func-names
+                   (range (length func-names)))))))
 
 (define (export-func-num-param [mod : Module]) : (Listof Sexp)
   (let ((funcs (filter (lambda ([c : Closure]) (not (equal? (Closure-name c) 'init))) (Module-funcs mod))))
@@ -129,7 +130,9 @@
               (Id-sym binding))
           (if func
               func
-              (error 'id "Uknown id: ~a" id)))))
+              (if (hash-has-key? prims id)
+                  id
+                  (error "Unknown Id ~v" id))))))
   
   (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params params locals funcs env e))))
   (match expr
@@ -144,18 +147,25 @@
          (list `(call ,(wat-name (hash-ref prims fn))
                       ,@(append-map (pe-helper env) args))))]
     [(IndirectCall fn args)
-     (let ((p-fn ((pe-helper env) (hash-ref env fn (lambda () (get-lam-binding fn)))))
-           (p-args (map (pe-helper env) args)))
-       `((\; Preparing to Call ,fn \;)
-         (\; Build function\'s parameter list \;)
-         ,@(build-arr p-args '__app_param_arr)
-         (\; Retrieve Function\'s env \;)
-         (i32.load (i32.add (i32.const 5) ,@p-fn))
-         (\; Calling ,fn \;)
+     (letrec ((top-func (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) fn)) funcs))
+              (p-env&fn (if (hash-has-key? prims fn)
+                            ; Primitives have no environmental needs
+                            (list `(i32.const 0)
+                                  `(i32.const ,(hash-ref func-table (hash-ref prims fn))))
+                            (if top-func
+                                (list `(block (result i32) ,@(build-arr (map (pe-helper env)
+                                                                             (map Id-sym (Closure-env-params top-func)))
+                                                                        '__clo_env_arr_helper))
+                                      `(i32.const ,(hash-ref func-table fn)))
+                                (let ((fn-expr ((pe-helper env) (hash-ref env fn (lambda () (get-lam-binding fn))))))
+                                  (list
+                                   `(i32.load (i32.add (i32.const 5) ,@fn-expr))
+                                   `(i32.load (i32.add (i32.const 1) ,@fn-expr)))))))
+              (p-args (map (pe-helper env) args)))
+       `(,@(build-arr p-args '__app_param_arr)
+         ,(first p-env&fn)
          (call_indirect (type $__function_type)
-                        ,(if (hash-has-key? func-table fn)
-                             `(i32.const ,(hash-ref func-table fn))
-                             `(i32.load (i32.add (i32.const 1) ,@p-fn))))))]
+                        ,(second p-env&fn))))]
     [(CaseLambda func-names)
      (let ((funcdefs (filter-map (lambda ([fn : Symbol])
                                    (findf (lambda ([clo : Closure]) (equal? (Closure-name clo) fn)) funcs))
@@ -218,12 +228,13 @@
                        ; The env arr is just a flat array of pointers
                        [(env? id) (list `(local.get ,(wat-name id)))]
                        [(global? id) (list `(global.get ,(wat-name id)))]
+                       [(hash-has-key? prims s) `(,(wat-name (hash-ref prims s)))]
                        ; If we ever encounter a function in this instance, it's not being applied, so either being assigned or passed
                        [func  (let ((env-exprs (map (pe-helper env) (map Id-sym (Closure-env-params func)))))
                                 `((\; Allocating func ,id \;)
                                   (call $__allocate_func (i32.const ,(hash-ref func-table id))
                                         ,@(build-arr env-exprs '__clo_env_arr_helper))))]
-                       [else (error 'unknown "ERROR: Unknown Id ~v ~a ~a ~a ~a" id globals params env-params locals)]))]
+                       [else (error 'unknown "ERROR: Unknown Id ~v" id)]))]
     [(Float n) (list `(call $__allocate_float (f64.const ,n)))]
     [(Int n) (list `(call $__allocate_int (i64.const ,n)))]
     [other (error 'unsupported (~a expr))]))

@@ -32,7 +32,7 @@
                '>= '__ge
                'equal? '__eq
                '= '__eq
-               '__app '__app
+               ;'__app '__app
                'cons '__cons
                'car '__car
                'cdr '__cdr))
@@ -40,7 +40,11 @@
 
 
 (define (simple-arith [name : Symbol] [i64op : Symbol] [f64op : Symbol]) : Sexp
-  `(func ,name (param $v1 i32) (param $v2 i32) (result i32)
+  `(func ,name (param $param_arr i32) (param $env_arr i32) (result i32)
+         (local $v1 i32)
+         (local $v2 i32)
+         (local.set $v1 (i32.load (local.get $param_arr)))
+         (local.set $v2 (i32.load (i32.add (i32.const 4) (local.get $param_arr))))
          (if (result i32) (i32.eqz (i32.load8_u (local.get $v1)))
              (then (\; v1 === int \;)
                    (if (result i32) (i32.eqz (i32.load8_u (local.get $v2)))
@@ -64,7 +68,11 @@
                                            (f64.load (i32.add (i32.const 1) (local.get $v2)))))))))))
 
 (define (simple-comp [name : Symbol] [i64op : Symbol] [f64op : Symbol]) : Sexp
-  `(func ,name (param $v1 i32) (param $v2 i32) (result i32)
+  `(func ,name (param $param_arr i32) (param $env_arr i32) (result i32)
+         (local $v1 i32)
+         (local $v2 i32)
+         (local.set $v1 (i32.load (local.get $param_arr)))
+         (local.set $v2 (i32.load (i32.add (i32.const 4) (local.get $param_arr))))
          (if (result i32) (i32.eqz (i32.load8_u (local.get $v1)))
              (then (\; v1 === int \;)
                    (if (result i32) (i32.eqz (i32.load8_u (local.get $v2)))
@@ -128,18 +136,30 @@
                                      (i32.load (i32.add (i32.const 5) (local.get $func_ptr)))
                                      (call_indirect (type $__function_type) (i32.load (i32.add (i32.const 1) (local.get $func_ptr)))))
                                (else (unreachable))))
-                     (func $__cons (param $ptr1 i32) (param $ptr2 i32) (result i32)
+                     (func $__cons (param $param_arr i32) (param $env_arr i32) (result i32)
+                           (local $ptr1 i32)
+                           (local $ptr2 i32)
+                           (local.set $ptr1 (i32.load (local.get $param_arr)))
+                           (local.set $ptr2 (i32.load (i32.add (i32.const 4) (local.get $param_arr))))
                            (call $__allocate_pair (local.get $ptr1) (local.get $ptr2)))
-                     (func $__car (param $ptr i32) (result i32)
+                     (func $__car (param $param_arr i32) (param $env_arr i32) (result i32)
+                           (local $ptr i32)
+                           (local.set $ptr (i32.load (local.get $param_arr)))
                            (if (result i32) (i32.eq (i32.const 2) (i32.load8_u (local.get $ptr)))
                                (then (i32.load (i32.add (i32.const 1) (local.get $ptr))))
                                (else (unreachable))))
-                     (func $__cdr (param $ptr i32) (result i32)
+                     (func $__cdr (param $param_arr i32) (param $env_arr i32) (result i32)
+                           (local $ptr i32)
+                           (local.set $ptr (i32.load (local.get $param_arr)))
                            (if (result i32) (i32.eq (i32.const 2) (i32.load8_u (local.get $ptr)))
                                (then (i32.load (i32.add (i32.const 5) (local.get $ptr))))
                                (else (unreachable))))
-                     (func $__list_ref (param $root_ptr i32) (param $idx i32) (result i32)
+                     (func $__list_ref (param $param_arr i32) (param $env_arr i32) (result i32)
+                           (local $root_ptr i32)
+                           (local $idx i32)
                            (local $curr_ptr i32)
+                           (local.set $root_ptr (i32.load (local.get $param_arr)))
+                           (local.set $idx (i32.load (i32.add (i32.const 4) (local.get $param_arr))))
                            (local.set $curr_ptr (local.get $root_ptr))
                            (block $break
                                   (loop $loop

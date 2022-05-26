@@ -204,11 +204,7 @@
     [(L0-App fn args)
      (let ((p-args (map L0-expr->Expr args)))
        (match fn
-         [(? symbol? fn) (if (hash-has-key? prims fn)
-                             ; primitive
-                             (Call fn p-args)
-                             ; lambda
-                             (IndirectCall fn p-args))]
+         [(? symbol? fn) (IndirectCall fn p-args)]
          [other (Call '__app (append (list (L0-expr->Expr fn)) p-args))]))]
     [(L0-CaseLambda funcs) (CaseLambda (filter-map (lambda ([e : L0-Expr]) (if (symbol? e) e #f)) funcs))]
     [(L0-If test t f) (If (L0-expr->Expr test) (L0-expr->Expr t) (L0-expr->Expr f))]
