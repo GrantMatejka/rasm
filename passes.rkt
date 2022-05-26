@@ -94,8 +94,6 @@
 (define (uniquify-id [id : Symbol] [env : Env]) : Symbol
   (if (hash-has-key? env id) (hash-ref env id) id))
 
-; TODO: Get Lambda env's working better
-
 ; In order to lift lambdas, we need to identify every lambda form and capture the current environment at lift time
 (define LAMBDAS : (Listof Func) '())
 (define (lift-lambdas [ast : FEP]) : FEP
@@ -142,13 +140,11 @@
                                         (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) funcs))))
                            LAMBDAS))
        name)]
-    ; TODO: Add ids to known-ids and remove them from unknown ids
     [(L0-LetVals ids vals body)
      (let ((new-env (append env (cast (flatten ids) (Listof Symbol)))))
        (L0-LetVals ids
                    (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) vals)
                    (map (lambda ([e : L0-Expr]) (lift-expr-lambdas e top-ids new-env)) body)))]
-    ; TODO: Add ids to known-ids and remove them from unknown ids
     [(L0-LetRecVals ids vals body)
      (let ((new-env (append env (cast (flatten ids) (Listof Symbol)))))
        (L0-LetRecVals ids

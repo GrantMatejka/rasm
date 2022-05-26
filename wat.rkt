@@ -5,8 +5,6 @@
 
 (provide build-wat)
 
-; TODO: Get loop.rkt working
-
 ; Maps function name to wasm table index
 (define-type FuncTable (HashTable Symbol Integer))
 (define func-table : FuncTable (make-hash))
@@ -137,7 +135,6 @@
   (define pe-helper (lambda ([env : Env]) (lambda ([e : Expr]) (process-expr globals env-params params locals funcs env e))))
   (match expr
     [(Call fn args)
-     ; TODO: See if we can combine these
      (if (equal? fn '__app)
          (let ((first-arg ((pe-helper env) (first args)))
                (rest-args (map (pe-helper env) (rest args)))
@@ -187,7 +184,6 @@
                 ; Since we are checking the conditional for eqz we need to reverse the conditions
                 (then ,@((pe-helper env) f))
                 (else ,@((pe-helper env) t))))]
-    ; TODO: Actually handle ids and vals
     [(LetVals ids vals exprs)
      (append
       (filter-map
@@ -200,7 +196,6 @@
       (append-map (pe-helper env) exprs))]
     [(Begin exprs)
      (append-map (pe-helper env) exprs)]
-    ; TODO: For set, should w ebe changing the pointer or the value at the ptr???
     [(Set id expr) (let ((p-expr ((pe-helper env) expr))
                          (getter (if (findf (lambda ([i : Symbol]) (equal? i id)) (map Id-sym globals))
                                      `(global.get ,(wat-name id))

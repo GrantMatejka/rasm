@@ -36,7 +36,7 @@
     ; We expect a module as the top level form to compile
     [(module id lang (#%plain-module-begin module-level-form ...))
      (flatten (filter-map (lambda (stx) (process-mod stx)) (stx->list #'(module-level-form ...))))]
-    ; TODO: Port these over
+
     [(#%expression expr) (error 'process-top-form TOP_LVL_FORM_ERROR)]
     [(begin top-level-form ...) (error 'process-top-form TOP_LVL_FORM_ERROR)]
     [(begin-for-syntax top-level-form ...) (error 'process-top-form TOP_LVL_FORM_ERROR)]
@@ -51,7 +51,7 @@
      (if (equal? (syntax-e #'id) 'configure-runtime)
          #f
          (filter-map process-mod (stx->list #'(module-level-form ...))))]
-    ; TODO: Port these over
+
     [(begin-for-syntax module-level-form ...) (error 'unsupported)]
     [(#%declare declaration-keyword ...) #f]
     [(module* id module-path (#%plain-module-begin module-level-form ...)) #f]
@@ -83,9 +83,6 @@
        (if named?
            (Func 'FILL_IN p-formals '() p-exprs)
            (L0-Lam p-formals p-exprs)))]
-    ; TODO: Implementation is just create a dispatcher lambda and a separate lambda for each case
-    ; - The dispatcher will calculate the length of the parameters provided and will call the expected lambda
-    ; - We could also do this by wrapping each case in a single lambda behind if cases
     [(case-lambda (formals body ...) ...)
      (L0-CaseLambda (map (lambda (f b) (L0-Lam (process-formal f) (filter-map process-expr (stx->list b))))
                       (stx->list #'(formals ...))
@@ -121,7 +118,7 @@
     [(#%variable-reference id) (process-formal #'id)]
     [(#%top . id) (L0-TopId (process-formal #'id))]
     [(#%variable-reference (#%top . id)) (TopId (process-formal #'id))]
-    ; TODO: Port these over
+
     [(#%variable-reference) '()]
     [(quote-syntax datum) '()]
     [(quote-syntax datum #:local) '()]
